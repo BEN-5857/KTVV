@@ -1,0 +1,17 @@
+{
+  "short_name": "WebKTV",
+  "name": "Web-KTV-Cast",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3059/3059518.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#090d16",
+  "theme_color": "#1e1b4b",
+  "display": "standalone",
+  "orientation": "portrait"
+}
