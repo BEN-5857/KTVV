@@ -40,11 +40,13 @@
       
       <!-- 點歌王與說明區塊 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
-        <h2 class="text-base font-bold mb-3 text-pink-400 flex items-center gap-2">
-          <i class="fa-solid fa-magnifying-glass"></i> 台灣點歌王 伴奏查詢
+        <h2 class="text-base font-bold mb-3 text-pink-400 flex items-center justify-between">
+          <span class="flex items-center gap-2"><i class="fa-solid fa-magnifying-glass"></i> 台灣點歌王 伴奏查詢</span>
+          <span class="text-[10px] text-slate-500 font-normal">提示：本視窗僅供查歌，點歌請用下方內建搜尋</span>
         </h2>
         
-        <div class="relative w-full h-80 bg-slate-950 rounded-xl overflow-hidden border border-slate-850 mb-3">
+        <!-- 預設高度加大至 500px -->
+        <div id="iframe-wrapper" class="relative w-full h-[500px] bg-slate-950 rounded-xl overflow-hidden border border-slate-850 mb-3 transition-all duration-300">
           <iframe id="song-iframe" src="https://song.corp.com.tw" class="w-full h-full"></iframe>
           
           <!-- 安全限制覆蓋提示 -->
@@ -61,13 +63,16 @@
           <a href="https://song.corp.com.tw" target="_blank" class="flex-1 text-center py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl transition text-xs font-semibold">
             另開點歌王 <i class="fa-solid fa-arrow-up-right-from-square ml-0.5"></i>
           </a>
-          <button onclick="toggleIframeFallback()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl transition text-xs font-semibold">
-            切換點歌王 / 提示
+          <button onclick="toggleTheaterMode()" class="flex-1 py-2.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 rounded-xl transition text-xs font-semibold">
+            <i class="fa-solid fa-expand"></i> 戲院加大模式
+          </button>
+          <button onclick="toggleIframeFallback()" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl transition text-xs font-semibold" title="切換提示說明">
+            <i class="fa-solid fa-circle-question"></i>
           </button>
         </div>
       </div>
 
-      <!-- 快速輸入語音搜尋 -->
+      <!-- 快速輸入語音搜尋與內建結果 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
         <h2 class="text-base font-bold text-indigo-400 flex items-center gap-2">
           <i class="fa-solid fa-search"></i> 語音 / 快速搜尋伴奏
@@ -80,15 +85,36 @@
             </button>
           </div>
         </div>
-        <button id="btn-search-yt" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl transition flex items-center justify-center gap-2 text-sm shadow">
-          <i class="fa-brands fa-youtube text-lg"></i> 在 YouTube 搜尋 KTV 伴奏
-        </button>
+        
+        <div class="flex gap-2">
+          <button id="btn-search-yt" class="flex-grow py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl transition flex items-center justify-center gap-2 text-sm shadow">
+            <i class="fa-solid fa-magnifying-glass"></i> 開始搜尋 KTV 伴奏
+          </button>
+          <button id="btn-search-yt-fallback" class="px-4 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl transition text-xs border border-slate-750" title="在 YouTube 新視窗搜尋">
+            <i class="fa-brands fa-youtube text-lg text-rose-500"></i>
+          </button>
+        </div>
+
+        <!-- 內建搜尋結果展示面板 -->
+        <div id="search-results-box" class="hidden border border-slate-800 bg-slate-950 rounded-xl p-3 max-h-96 overflow-y-auto space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-850 pb-2">
+            <span class="text-xs text-indigo-400 font-bold flex items-center gap-1">
+              <i class="fa-solid fa-square-poll-horizontal"></i> 搜尋結果 (點擊即可點歌)
+            </span>
+            <button id="btn-close-results" class="text-slate-500 hover:text-slate-300 text-xs px-1.5 py-0.5 hover:bg-slate-900 rounded">
+              關閉結果
+            </button>
+          </div>
+          <div id="search-results-list" class="space-y-2">
+            <!-- 動態渲染搜尋結果 -->
+          </div>
+        </div>
       </div>
 
-      <!-- 解析並加入點歌 -->
+      <!-- 解析網址直接加入 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
         <h2 class="text-base font-bold text-teal-400 flex items-center gap-2">
-          <i class="fa-solid fa-plus-circle"></i> 解析並加入點歌
+          <i class="fa-solid fa-plus-circle"></i> 解析網址直接加入
         </h2>
         <div class="space-y-3">
           <div>
@@ -112,7 +138,7 @@
 
     </section>
 
-    <!-- 右側 / 浮動面板 -->
+    <!-- 右側 / 浮動面板 (已點歌單與控制台) -->
     <section class="lg:col-span-5 space-y-6">
 
       <!-- 電視連線控制 -->

@@ -30,8 +30,7 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // 改採 Network-First（網路優先）快取策略
-  // 此舉可保確每次專案有新代碼推播時，用戶端能自動加載最新版，避免卡在舊快取中
+  // Network-First 快取策略，優先載入最新程式碼，確保系統不被快取卡死
   e.respondWith(
     fetch(e.request).catch(() => {
       return caches.match(e.request);
