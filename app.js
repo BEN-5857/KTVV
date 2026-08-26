@@ -1,5 +1,5 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v2.4 雙模直連與智慧彈窗版)
+ * Web-KTV-Cast 核心邏輯 (v2.5 安全容錯與彈窗偵測版)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,31 +25,39 @@ function initTV() {
   const activateBtn = document.getElementById('btn-activate');
   const splashScreen = document.getElementById('splash-screen');
   
-  activateBtn.addEventListener('click', () => {
-    splashScreen.classList.add('hidden');
-    setupYouTubePlayer();
-    setupTVPeer();
-  });
+  if (activateBtn) {
+    activateBtn.addEventListener('click', () => {
+      if (splashScreen) splashScreen.classList.add('hidden');
+      setupYouTubePlayer();
+      setupTVPeer();
+    });
+  }
 
   const btnToggleFullscreen = document.getElementById('btn-toggle-fullscreen');
   const playerContainer = document.getElementById('player-container');
   const queueSidebar = document.getElementById('queue-sidebar');
   let isFullVideo = false;
 
-  btnToggleFullscreen.addEventListener('click', () => {
-    isFullVideo = !isFullVideo;
-    if (isFullVideo) {
-      playerContainer.classList.remove('col-span-9');
-      playerContainer.classList.add('col-span-12');
-      queueSidebar.classList.add('hidden');
-      btnToggleFullscreen.innerHTML = '<i class="fa-solid fa-compress"></i>';
-    } else {
-      playerContainer.classList.remove('col-span-12');
-      playerContainer.classList.add('col-span-9');
-      queueSidebar.classList.remove('hidden');
-      btnToggleFullscreen.innerHTML = '<i class="fa-solid fa-expand"></i>';
-    }
-  });
+  if (btnToggleFullscreen) {
+    btnToggleFullscreen.addEventListener('click', () => {
+      isFullVideo = !isFullVideo;
+      if (isFullVideo) {
+        if (playerContainer) {
+          playerContainer.classList.remove('col-span-9');
+          playerContainer.classList.add('col-span-12');
+        }
+        if (queueSidebar) queueSidebar.classList.add('hidden');
+        btnToggleFullscreen.innerHTML = '<i class="fa-solid fa-compress"></i>';
+      } else {
+        if (playerContainer) {
+          playerContainer.classList.remove('col-span-12');
+          playerContainer.classList.add('col-span-9');
+        }
+        if (queueSidebar) queueSidebar.classList.remove('hidden');
+        btnToggleFullscreen.innerHTML = '<i class="fa-solid fa-expand"></i>';
+      }
+    });
+  }
 }
 
 function setupYouTubePlayer() {
@@ -113,31 +121,41 @@ function setupTVPeer() {
     localStorage.setItem('ktv_room_code', tvRoomCode);
   }
   
-  document.getElementById('room-code-display').textContent = tvRoomCode;
-  document.getElementById('hud-room').textContent = tvRoomCode;
+  const codeDisplay = document.getElementById('room-code-display');
+  const hudRoom = document.getElementById('hud-room');
+  if (codeDisplay) codeDisplay.textContent = tvRoomCode;
+  if (hudRoom) hudRoom.textContent = tvRoomCode;
   
   const peer = new Peer('web-ktv-' + tvRoomCode);
   
   peer.on('open', () => {
-    document.getElementById('tv-status').innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 雲端通訊就緒，等待遙控端連線...
-    `;
+    const status = document.getElementById('tv-status');
+    if (status) {
+      status.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 雲端通訊就緒，等待遙控端連線...
+      `;
+    }
   });
   
   peer.on('connection', (conn) => {
     tvActiveConn = conn;
-    document.getElementById('tv-status').innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span> 遙控端手機已連線 🟢
-    `;
+    const status = document.getElementById('tv-status');
+    if (status) {
+      status.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span> 遙控端手機已連線 🟢
+      `;
+    }
     
     conn.on('data', (data) => {
       handleTVMessage(data);
     });
     
     conn.on('close', () => {
-      document.getElementById('tv-status').innerHTML = `
-        <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 遙控端已斷開，等待重新連線...
-      `;
+      if (status) {
+        status.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 遙控端已斷開，等待重新連線...
+        `;
+      }
       tvActiveConn = null;
     });
   });
@@ -148,9 +166,12 @@ function setupTVPeer() {
       localStorage.setItem('ktv_room_code', tvRoomCode);
       location.reload();
     } else {
-      document.getElementById('tv-status').innerHTML = `
-        <span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線故障，請重新啟動頁面
-      `;
+      const status = document.getElementById('tv-status');
+      if (status) {
+        status.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線故障，請重新啟動頁面
+        `;
+      }
     }
   });
 }
@@ -186,11 +207,15 @@ function playVideo(videoId, title) {
     return;
   }
   
-  document.getElementById('idle-overlay').classList.add('hidden');
-  document.getElementById('hud-overlay').classList.add('opacity-100');
+  const idle = document.getElementById('idle-overlay');
+  const hud = document.getElementById('hud-overlay');
+  const curTitle = document.getElementById('current-song-title');
+  const hudTitle = document.getElementById('hud-title');
   
-  document.getElementById('current-song-title').textContent = title;
-  document.getElementById('hud-title').textContent = title;
+  if (idle) idle.classList.add('hidden');
+  if (hud) hud.classList.add('opacity-100');
+  if (curTitle) curTitle.textContent = title;
+  if (hudTitle) hudTitle.textContent = title;
   
   if (tvPlayer && tvPlayer.loadVideoById) {
     tvPlayer.loadVideoById({
@@ -202,17 +227,23 @@ function playVideo(videoId, title) {
 
 function updateTVQueueUI(queue, currentPlaying) {
   const tvQueueList = document.getElementById('tv-queue-list');
+  if (!tvQueueList) return;
   tvQueueList.innerHTML = '';
   
+  const idle = document.getElementById('idle-overlay');
+  const hud = document.getElementById('hud-overlay');
+  const curTitle = document.getElementById('current-song-title');
+  const hudTitle = document.getElementById('hud-title');
+  
   if (currentPlaying) {
-    document.getElementById('idle-overlay').classList.add('hidden');
-    document.getElementById('hud-overlay').classList.add('opacity-100');
-    document.getElementById('current-song-title').textContent = currentPlaying.title;
-    document.getElementById('hud-title').textContent = currentPlaying.title;
+    if (idle) idle.classList.add('hidden');
+    if (hud) hud.classList.add('opacity-100');
+    if (curTitle) curTitle.textContent = currentPlaying.title;
+    if (hudTitle) hudTitle.textContent = currentPlaying.title;
   } else {
-    document.getElementById('idle-overlay').classList.remove('hidden');
-    document.getElementById('hud-overlay').classList.remove('opacity-100');
-    document.getElementById('current-song-title').textContent = "目前無歌曲播放";
+    if (idle) idle.classList.remove('hidden');
+    if (hud) hud.classList.remove('opacity-100');
+    if (curTitle) curTitle.textContent = "目前無歌曲播放";
     if (tvPlayer && tvPlayer.stopVideo) tvPlayer.stopVideo();
   }
   
@@ -244,6 +275,16 @@ let ctrlIsPlaying = true;
 let lastProcessedClipboardUrl = '';
 
 function initController() {
+  // 安全元素事件綁定輔助函數 (核心防崩潰防線)
+  const safeBindClick = (id, callback) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('click', callback);
+    } else {
+      console.warn(`[安全提示] 找不到元素 ID "${id}"，這代表瀏覽器此時可能載入了舊版 HTML 快取。已自動容錯跳過，程式碼不崩潰。`);
+    }
+  };
+
   playlistQueue = JSON.parse(localStorage.getItem('ktv_queue') || '[]');
   currentPlaying = JSON.parse(localStorage.getItem('ktv_current') || 'null');
   
@@ -251,54 +292,22 @@ function initController() {
   
   const searchInput = document.getElementById('search-input');
   const btnSpeech = document.getElementById('btn-speech');
-  const btnSearchYT = document.getElementById('btn-search-yt');
-  const btnSearchYTFallback = document.getElementById('btn-search-yt-fallback');
-  const btnPopupYT = document.getElementById('btn-popup-yt');
   const youtubeUrlInput = document.getElementById('youtube-url-input');
   const youtubeTitleInput = document.getElementById('youtube-title-input');
-  const btnClipboardAdd = document.getElementById('btn-clipboard-add');
-  const btnManualAdd = document.getElementById('btn-manual-add');
   const roomCodeInput = document.getElementById('room-code-input');
-  const btnConnect = document.getElementById('btn-connect');
-  const btnCloseResults = document.getElementById('btn-close-results');
-  
-  const btnReplay = document.getElementById('btn-replay');
-  const btnPlayPause = document.getElementById('btn-play-pause');
-  const btnNext = document.getElementById('btn-next');
-
-  // API 模式載入與初始化
-  const apiKeyInput = document.getElementById('api-key-input');
-  const btnSaveKey = document.getElementById('btn-save-key');
-  const searchModeIndicator = document.getElementById('search-mode-indicator');
-  
-  let userApiKey = localStorage.getItem('ktv_youtube_api_key') || '';
-  if (userApiKey) {
-    apiKeyInput.value = userApiKey;
-    searchModeIndicator.textContent = '官方直連模式 🟢';
-    searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
-  }
-
-  btnSaveKey.addEventListener('click', () => {
-    const key = apiKeyInput.value.trim();
-    localStorage.setItem('ktv_youtube_api_key', key);
-    if (key) {
-      alert('自訂 API 金鑰儲存成功！已解鎖極速直連模式。');
-      searchModeIndicator.textContent = '官方直連模式 🟢';
-      searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
-    } else {
-      alert('已清除 API 金鑰，切換回公用代理通道。');
-      searchModeIndicator.textContent = '公用分流模式';
-      searchModeIndicator.className = 'text-[10px] bg-slate-950 text-slate-400 border border-slate-850 px-2 py-0.5 rounded font-normal';
-    }
-  });
   
   const lastRoom = localStorage.getItem('ktv_last_room');
-  if (lastRoom) {
+  if (lastRoom && roomCodeInput) {
     roomCodeInput.value = lastRoom;
-    connectToTV(lastRoom);
+    // 延遲連線避免與 CDN 載入衝突
+    setTimeout(() => {
+      connectToTV(lastRoom);
+    }, 500);
   }
   
-  btnConnect.addEventListener('click', () => {
+  // 安全事件綁定，杜絕 null.addEventListener 報錯
+  safeBindClick('btn-connect', () => {
+    if (!roomCodeInput) return;
     const room = roomCodeInput.value.trim();
     if (room.length === 6 && /^\d+$/.test(room)) {
       connectToTV(room);
@@ -307,9 +316,10 @@ function initController() {
     }
   });
   
-  btnManualAdd.addEventListener('click', () => {
+  safeBindClick('btn-manual-add', () => {
+    if (!youtubeUrlInput) return;
     const urlVal = youtubeUrlInput.value.trim();
-    const titleVal = youtubeTitleInput.value.trim();
+    const titleVal = youtubeTitleInput ? youtubeTitleInput.value.trim() : '';
     if (!urlVal) {
       alert('請填入 YouTube 連結或影片 ID！');
       return;
@@ -323,13 +333,15 @@ function initController() {
     addSong(videoId, finalTitle);
     
     youtubeUrlInput.value = '';
-    youtubeTitleInput.value = '';
+    if (youtubeTitleInput) youtubeTitleInput.value = '';
   });
   
-  setupSpeechRecognition(btnSpeech, searchInput);
+  if (btnSpeech && searchInput) {
+    setupSpeechRecognition(btnSpeech, searchInput);
+  }
   
-  // 開始搜尋按鈕
-  btnSearchYT.addEventListener('click', () => {
+  safeBindClick('btn-search-yt', () => {
+    if (!searchInput) return;
     const query = searchInput.value.trim();
     if (query) {
       searchYouTubeKTV(query);
@@ -338,67 +350,24 @@ function initController() {
     }
   });
 
-  // 彈出式 YouTube 找歌門戶 (免 API，100% 成功且不受阻擋)
-  btnPopupYT.addEventListener('click', () => {
+  // 智慧型彈窗找歌 (具備彈窗阻擋偵測)
+  safeBindClick('btn-popup-yt', () => {
+    if (!searchInput) return;
     const query = searchInput.value.trim();
     const searchUrl = query 
       ? `https://m.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`
       : `https://m.youtube.com`;
     
-    window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
-  });
-
-  // 監聽網頁重新獲得焦點事件 (當用戶在彈出視窗複製完網址返回時)
-  window.addEventListener('focus', async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      const videoId = extractYouTubeVideoId(text);
-      
-      if (videoId && text !== lastProcessedClipboardUrl) {
-        lastProcessedClipboardUrl = text;
-        
-        // 喚醒智慧點歌傳送門 Modal
-        const modal = document.getElementById('clipboard-modal');
-        const urlDisplay = document.getElementById('clip-video-url');
-        
-        if (modal && urlDisplay) {
-          urlDisplay.textContent = text;
-          modal.classList.remove('hidden');
-          
-          const btnCancel = document.getElementById('btn-clip-cancel');
-          const btnAdd = document.getElementById('btn-clip-add');
-          const btnAddNext = document.getElementById('btn-clip-add-next');
-          
-          const clearListeners = () => {
-            btnCancel.onclick = null;
-            btnAdd.onclick = null;
-            btnAddNext.onclick = null;
-          };
-          
-          btnCancel.onclick = () => {
-            clearListeners();
-            modal.classList.add('hidden');
-          };
-          
-          btnAdd.onclick = () => {
-            clearListeners();
-            addSong(videoId, `KTV 伴唱影片 (${videoId})`);
-            modal.classList.add('hidden');
-          };
-          
-          btnAddNext.onclick = () => {
-            clearListeners();
-            addSongNext(videoId, `KTV 伴唱影片 (${videoId})`);
-            modal.classList.add('hidden');
-          };
-        }
-      }
-    } catch (err) {
-      console.log('智慧剪貼簿自動掃描：使用者尚未啟用剪貼簿，或瀏覽器安全防護（正常現象）。');
+    const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
+    
+    // 如果返回 null 代表被手機或電腦瀏覽器的「彈出視窗攔截器」擋下了
+    if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
+      alert('⚠️ 彈出視窗已被您的手機瀏覽器阻擋！\n請前往瀏覽器設定中「允許彈出視窗」，或直接開啟您的 YouTube App 搜尋，複製連結後返回此網頁，同樣可以一鍵點歌！');
     }
   });
 
-  btnSearchYTFallback.addEventListener('click', () => {
+  safeBindClick('btn-search-yt-fallback', () => {
+    if (!searchInput) return;
     const query = searchInput.value.trim();
     if (query) {
       const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`;
@@ -408,12 +377,14 @@ function initController() {
     }
   });
 
-  btnCloseResults.addEventListener('click', () => {
-    document.getElementById('search-results-box').classList.add('hidden');
-    document.getElementById('search-results-list').innerHTML = '';
+  safeBindClick('btn-close-results', () => {
+    const box = document.getElementById('search-results-box');
+    const list = document.getElementById('search-results-list');
+    if (box) box.classList.add('hidden');
+    if (list) list.innerHTML = '';
   });
 
-  btnClipboardAdd.addEventListener('click', async () => {
+  safeBindClick('btn-clipboard-add', async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
@@ -435,40 +406,126 @@ function initController() {
     }
   });
   
-  btnReplay.addEventListener('click', () => {
+  safeBindClick('btn-replay', () => {
     if (ctrlActiveConn) ctrlActiveConn.send({ type: 'REPLAY' });
   });
   
-  btnPlayPause.addEventListener('click', () => {
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  safeBindClick('btn-play-pause', () => {
     ctrlIsPlaying = !ctrlIsPlaying;
     const icon = document.getElementById('play-pause-icon');
-    const label = btnPlayPause.querySelector('span');
+    const label = btnPlayPause ? (btnPlayPause.querySelector('span') || btnPlayPause) : null;
     if (ctrlIsPlaying) {
-      icon.className = 'fa-solid fa-pause text-lg text-pink-400';
-      label.textContent = '暫停';
+      if (icon) icon.className = 'fa-solid fa-pause text-lg text-pink-400';
+      if (label) label.textContent = '暫停';
       if (ctrlActiveConn) ctrlActiveConn.send({ type: 'RESUME' });
     } else {
-      icon.className = 'fa-solid fa-play text-lg text-emerald-400';
-      label.textContent = '播放';
+      if (icon) icon.className = 'fa-solid fa-play text-lg text-emerald-400';
+      if (label) label.textContent = '播放';
       if (ctrlActiveConn) ctrlActiveConn.send({ type: 'PAUSE' });
     }
   });
   
-  btnNext.addEventListener('click', () => {
+  safeBindClick('btn-next', () => {
     playNextSong();
   });
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg => console.log('Service Worker 註冊完成', reg.scope))
-      .catch(err => console.error('Service Worker 註冊失敗', err));
+  // API 模式安全初始化
+  const apiKeyInput = document.getElementById('api-key-input');
+  const searchModeIndicator = document.getElementById('search-mode-indicator');
+  let userApiKey = localStorage.getItem('ktv_youtube_api_key') || '';
+  
+  if (userApiKey && apiKeyInput) {
+    apiKeyInput.value = userApiKey;
+  }
+  if (userApiKey && searchModeIndicator) {
+    searchModeIndicator.textContent = '官方直連模式 🟢';
+    searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
+  }
+
+  safeBindClick('btn-save-key', () => {
+    if (!apiKeyInput) return;
+    const key = apiKeyInput.value.trim();
+    localStorage.setItem('ktv_youtube_api_key', key);
+    if (key) {
+      alert('自訂 API 金鑰儲存成功！已解鎖極速直連模式。');
+      if (searchModeIndicator) {
+        searchModeIndicator.textContent = '官方直連模式 🟢';
+        searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
+      }
+    } else {
+      alert('已清除 API 金鑰，切換回公用代理通道。');
+      if (searchModeIndicator) {
+        searchModeIndicator.textContent = '公用分流模式';
+        searchModeIndicator.className = 'text-[10px] bg-slate-950 text-slate-400 border border-slate-850 px-2 py-0.5 rounded font-normal';
+      }
+    }
+  });
+
+  // 監聽網頁聚焦
+  window.addEventListener('focus', handleClipboardFocus);
+}
+
+// 智慧剪貼簿高相容性處理器
+async function handleClipboardFocus() {
+  if (!navigator.clipboard || !navigator.clipboard.readText) return;
+  try {
+    const text = await navigator.clipboard.readText();
+    const videoId = extractYouTubeVideoId(text);
+    
+    if (videoId && text !== lastProcessedClipboardUrl) {
+      lastProcessedClipboardUrl = text;
+      
+      const modal = document.getElementById('clipboard-modal');
+      const urlDisplay = document.getElementById('clip-video-url');
+      
+      if (modal && urlDisplay) {
+        urlDisplay.textContent = text;
+        modal.classList.remove('hidden');
+        
+        const btnCancel = document.getElementById('btn-clip-cancel');
+        const btnAdd = document.getElementById('btn-clip-add');
+        const btnAddNext = document.getElementById('btn-clip-add-next');
+        
+        const clearListeners = () => {
+          if (btnCancel) btnCancel.onclick = null;
+          if (btnAdd) btnAdd.onclick = null;
+          if (btnAddNext) btnAddNext.onclick = null;
+        };
+        
+        if (btnCancel) {
+          btnCancel.onclick = () => {
+            clearListeners();
+            modal.classList.add('hidden');
+          };
+        }
+        if (btnAdd) {
+          btnAdd.onclick = () => {
+            clearListeners();
+            addSong(videoId, `KTV 伴唱影片 (${videoId})`);
+            modal.classList.add('hidden');
+          };
+        }
+        if (btnAddNext) {
+          btnAddNext.onclick = () => {
+            clearListeners();
+            addSongNext(videoId, `KTV 伴唱影片 (${videoId})`);
+            modal.classList.add('hidden');
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.log('智慧剪貼簿掃描提示：安全授權限制。');
   }
 }
 
 function connectToTV(roomCodeVal) {
   const badge = document.getElementById('conn-status-badge');
-  badge.className = 'px-2.5 py-1 text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 rounded-full flex items-center gap-1.5';
-  badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> 連線中...`;
+  if (badge) {
+    badge.className = 'px-2.5 py-1 text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 rounded-full flex items-center gap-1.5';
+    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> 連線中...`;
+  }
   
   const initiateConnect = () => {
     if (ctrlActiveConn) {
@@ -481,14 +538,20 @@ function connectToTV(roomCodeVal) {
   if (ctrlPeer && !ctrlPeer.destroyed) {
     initiateConnect();
   } else {
+    if (typeof Peer === 'undefined') {
+      console.warn('PeerJS CDN 尚未載入完成，稍後重新嘗試連線。');
+      return;
+    }
     ctrlPeer = new Peer();
     ctrlPeer.on('open', () => {
       initiateConnect();
     });
     ctrlPeer.on('error', (err) => {
       console.error('PeerJS Controller Error:', err);
-      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線錯誤`;
+      if (badge) {
+        badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線錯誤`;
+      }
     });
   }
 }
@@ -500,8 +563,10 @@ function setupControllerEvents(conn, roomCodeVal) {
     ctrlActiveConn = conn;
     localStorage.setItem('ktv_last_room', roomCodeVal);
     
-    badge.className = 'px-2.5 py-1 text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1.5';
-    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已連線電視：${roomCodeVal}`;
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已連線電視：${roomCodeVal}`;
+    }
     
     syncQueueWithTV();
   });
@@ -514,14 +579,18 @@ function setupControllerEvents(conn, roomCodeVal) {
   
   conn.on('close', () => {
     ctrlActiveConn = null;
-    badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 未連線`;
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 未連線`;
+    }
   });
   
   conn.on('error', (err) => {
     console.error(err);
-    badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線失敗`;
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線失敗`;
+    }
   });
 }
 
@@ -571,7 +640,7 @@ function setupSpeechRecognition(btn, input) {
   };
 }
 
-// 智慧雙模搜尋核心：自動識別官方金鑰
+// 智慧雙模搜尋核心
 async function searchYouTubeKTV(query) {
   const resultsBox = document.getElementById('search-results-box');
   const resultsList = document.getElementById('search-results-list');
@@ -589,7 +658,6 @@ async function searchYouTubeKTV(query) {
   const userApiKey = localStorage.getItem('ktv_youtube_api_key') || '';
   
   if (userApiKey) {
-    // 1. 官方 API 直連模式 (100% 成功、秒出、不受任何阻擋)
     try {
       const results = await searchWithOfficialAPI(query, userApiKey);
       renderSearchResults(results);
@@ -599,7 +667,6 @@ async function searchYouTubeKTV(query) {
       await searchWithPublicAPIFallback(query);
     }
   } else {
-    // 2. 免金鑰開源公用分流通道模式
     await searchWithPublicAPIFallback(query);
   }
 }
@@ -714,6 +781,7 @@ async function searchWithPublicAPIFallback(query) {
 // 渲染結果到手機端 UI
 function renderSearchResults(results) {
   const resultsList = document.getElementById('search-results-list');
+  if (!resultsList) return;
   resultsList.innerHTML = '';
   
   if (results.length === 0) {
@@ -751,6 +819,7 @@ function renderSearchResults(results) {
 }
 
 function renderSearchError(container, query) {
+  if (!container) return;
   container.innerHTML = `
     <div class="text-center py-8 text-slate-400 text-xs space-y-2">
       <p>⚠️ 內建公用連線通道目前異常忙碌。</p>
@@ -765,18 +834,26 @@ function renderSearchError(container, query) {
     </div>
   `;
   
-  document.getElementById('btn-search-yt-retry')?.addEventListener('click', () => {
-    window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`, '_blank');
-  });
+  const retryBtn = document.getElementById('btn-search-yt-retry');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', () => {
+      window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`, '_blank');
+    });
+  }
 }
 
-// 輔助全域彈出搜尋視窗，與 Modal 自動對接
+// 全域彈出搜尋視窗，與 Modal 自動對接
 window.triggerPopupSearch = function() {
-  const query = document.getElementById('search-input').value.trim();
+  const queryInput = document.getElementById('search-input');
+  const query = queryInput ? queryInput.value.trim() : '';
   const searchUrl = query 
     ? `https://m.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`
     : `https://m.youtube.com`;
-  window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
+  
+  const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
+  if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
+    alert('⚠️ 彈出視窗已被阻擋！請允許瀏覽器彈出視窗功能。');
+  }
 };
 
 function addSong(videoId, title) {
@@ -870,7 +947,7 @@ function saveAndReloadQueue() {
 }
 
 // ==========================================
-// 全域函式綁定 (用於動態 HTML onClick 事件)
+// 全域函式綁定
 // ==========================================
 window.addSong = addSong;
 
@@ -940,8 +1017,10 @@ window.toggleTheaterMode = function() {
 window.toggleSettings = function() {
   const panel = document.getElementById('settings-panel');
   const chevron = document.getElementById('settings-chevron');
-  if (panel && chevron) {
+  if (panel) {
     panel.classList.toggle('hidden');
+  }
+  if (chevron) {
     chevron.classList.toggle('rotate-180');
   }
 };
