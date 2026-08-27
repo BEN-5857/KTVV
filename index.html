@@ -38,127 +38,66 @@
     <!-- 左側 / 主區域 (點歌區) -->
     <section class="lg:col-span-7 space-y-6">
       
-      <!-- 點歌王與說明區塊 -->
+      <!-- 台灣點歌王 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
         <h2 class="text-base font-bold mb-3 text-pink-400 flex items-center justify-between">
           <span class="flex items-center gap-2"><i class="fa-solid fa-magnifying-glass"></i> 台灣點歌王 伴奏查詢</span>
-          <span class="text-[10px] text-slate-500 font-normal">提示：本視窗僅供查歌，點歌請用下方內建搜尋</span>
+          <span class="text-[10px] text-slate-500 font-normal">瀏覽找歌無問題 🟢</span>
         </h2>
         
-        <div id="iframe-wrapper" class="relative w-full h-[500px] bg-slate-950 rounded-xl overflow-hidden border border-slate-850 mb-3 transition-all duration-300">
+        <div id="iframe-wrapper" class="relative w-full h-[450px] bg-slate-950 rounded-xl overflow-hidden border border-slate-850 mb-3 transition-all duration-300">
           <iframe id="song-iframe" src="https://song.corp.com.tw" class="w-full h-full"></iframe>
-          
-          <!-- 安全限制覆蓋提示 -->
-          <div id="iframe-fallback" class="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center text-sm text-slate-300 hidden">
-            <i class="fa-solid fa-circle-info text-amber-500 text-3xl mb-3"></i>
-            <p class="mb-4 max-w-xs text-xs text-slate-400">若上方點歌王視窗載入不完全，這通常是因為目標網站的安全防護政策 (X-Frame-Options) 限制嵌入。</p>
-            <a href="https://song.corp.com.tw" target="_blank" class="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition font-medium text-xs flex items-center gap-1.5">
-              直接在新視窗打開點歌王 <i class="fa-solid fa-arrow-up-right-from-square"></i>
-            </a>
-          </div>
         </div>
         
         <div class="flex gap-2">
           <a href="https://song.corp.com.tw" target="_blank" class="flex-1 text-center py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl transition text-xs font-semibold">
-            另開點歌王 <i class="fa-solid fa-arrow-up-right-from-square ml-0.5"></i>
+            另開點歌王獨立分頁 <i class="fa-solid fa-arrow-up-right-from-square ml-0.5"></i>
           </a>
           <button onclick="toggleTheaterMode()" class="flex-1 py-2.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 rounded-xl transition text-xs font-semibold">
             <i class="fa-solid fa-expand"></i> 戲院加大模式
           </button>
-          <button onclick="toggleIframeFallback()" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl transition text-xs font-semibold" title="切換提示說明">
-            <i class="fa-solid fa-circle-question"></i>
-          </button>
         </div>
       </div>
 
-      <!-- 快速輸入語音搜尋與內建結果 -->
+      <!-- 貼歌點歌與語音輔助面板 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-        <h2 class="text-base font-bold text-indigo-400 flex items-center gap-2 justify-between">
-          <span class="flex items-center gap-2"><i class="fa-solid fa-search"></i> 語音 / 快速搜尋伴奏</span>
-          <span id="search-mode-indicator" class="text-[10px] bg-slate-950 text-slate-400 border border-slate-850 px-2.5 py-0.5 rounded font-normal">公用分流模式</span>
+        <h2 class="text-base font-bold text-teal-400 flex items-center gap-2">
+          <i class="fa-solid fa-clipboard-list"></i> 快速貼歌 ＋ 語音輔助
         </h2>
-        <div class="flex gap-2">
-          <div class="relative flex-grow">
-            <input type="text" id="search-input" class="w-full pl-4 pr-12 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-100 placeholder-slate-600 text-sm" placeholder="輸入歌名、歌手或關鍵字...">
-            <button id="btn-speech" class="absolute right-3 top-3 text-slate-400 hover:text-pink-500 transition">
+        
+        <div class="space-y-3">
+          <!-- 核心貼歌輸入框 -->
+          <div class="relative">
+            <input type="text" id="youtube-url-input" class="w-full pl-4 pr-12 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-100 placeholder-slate-600 text-sm" placeholder="貼上 YouTube 影片網址、Shorts 或直播連結...">
+            <!-- 語音輔助輸入按鈕 -->
+            <button id="btn-speech" class="absolute right-3 top-3 text-slate-400 hover:text-pink-500 transition" title="用語音輸入歌名並帶入搜尋">
               <i class="fa-solid fa-microphone text-lg"></i>
             </button>
           </div>
-        </div>
-        
-        <div class="grid grid-cols-12 gap-2">
-          <button id="btn-search-yt" class="col-span-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl transition flex items-center justify-center gap-2 text-sm shadow">
-            <i class="fa-solid fa-magnifying-glass"></i> 開始搜尋 KTV 伴奏
-          </button>
-          <button id="btn-popup-yt" class="col-span-4 py-3 bg-slate-850 hover:bg-slate-800 text-slate-300 font-semibold rounded-xl transition flex items-center justify-center gap-1.5 text-xs border border-slate-750" title="開啟 YouTube 找歌小視窗並複製網址">
-            <i class="fa-brands fa-youtube text-base text-rose-500"></i> 彈窗找歌
-          </button>
+
+          <!-- 功能點歌控制按鈕 -->
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btn-manual-add" class="py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold transition text-xs flex items-center justify-center gap-1.5 shadow">
+              <i class="fa-solid fa-plus"></i> 自動抓取歌名並點歌
+            </button>
+            <button id="btn-manual-add-next" class="py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold transition text-xs flex items-center justify-center gap-1.5 shadow">
+              <i class="fa-solid fa-star"></i> 自動抓取歌名並插播
+            </button>
+          </div>
+
+          <!-- 一鍵便利工具 -->
+          <div class="grid grid-cols-12 gap-2">
+            <button id="btn-clipboard-quick" class="col-span-8 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-paste text-teal-400"></i> 一鍵貼上剪貼簿並點歌
+            </button>
+            <button id="btn-popup-yt" class="col-span-4 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 font-semibold rounded-xl transition flex items-center justify-center gap-1.5 text-xs border border-slate-750" title="開啟 YouTube 找歌小視窗並複製網址">
+              <i class="fa-brands fa-youtube text-base text-rose-500"></i> 彈窗找歌
+            </button>
+          </div>
         </div>
 
         <div class="text-[11px] text-slate-400 bg-slate-950/80 p-3.5 rounded-xl border border-slate-850/60 leading-relaxed" id="search-tip-box">
-          💡 **100% 穩定唱歌指南**：公用代理通道容易擁堵。建議點選右方 **「彈窗找歌」** 瀏覽，看中哪首點擊「分享 ➡️ 複製連結」，切換回本網頁就會**自動跳出「智慧點歌傳送門」**秒點入歌單！
-        </div>
-
-        <!-- 內建搜尋結果展示面板 -->
-        <div id="search-results-box" class="hidden border border-slate-800 bg-slate-950 rounded-xl p-3 max-h-96 overflow-y-auto space-y-3">
-          <div class="flex items-center justify-between border-b border-slate-850 pb-2">
-            <span class="text-xs text-indigo-400 font-bold flex items-center gap-1">
-              <i class="fa-solid fa-square-poll-horizontal"></i> 搜尋結果 (點擊即可點歌)
-            </span>
-            <button id="btn-close-results" class="text-slate-500 hover:text-slate-300 text-xs px-1.5 py-0.5 hover:bg-slate-900 rounded">
-              關閉結果
-            </button>
-          </div>
-          <div id="search-results-list" class="space-y-2">
-            <!-- 動態渲染搜尋結果 -->
-          </div>
-        </div>
-      </div>
-
-      <!-- 遙控器進階設定 (自訂 API 金鑰) -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
-        <button onclick="toggleSettings()" class="w-full flex items-center justify-between text-xs text-slate-400 font-semibold hover:text-slate-200 transition">
-          <span class="flex items-center gap-1.5"><i class="fa-solid fa-cog"></i> 遙控器進階設定 (填寫後享 100% 直連秒出)</span>
-          <i class="fa-solid fa-chevron-down transition-transform duration-300" id="settings-chevron"></i>
-        </button>
-        <div id="settings-panel" class="hidden mt-4 pt-3 border-t border-slate-800 space-y-3">
-          <div>
-            <label class="block text-[11px] text-slate-400 mb-1 font-medium">自訂 YouTube API 金鑰 (Key)</label>
-            <div class="flex gap-2">
-              <input type="password" id="api-key-input" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-100 text-xs placeholder-slate-800" placeholder="貼上您的 Google Cloud API 金鑰">
-              <button id="btn-save-key" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition">
-                儲存
-              </button>
-            </div>
-            <p class="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-              💡 貼心說明：在此填入您在 Google Cloud 申請的免費 YouTube Data API v3 金鑰，即可啟用 100% 官方直連搜尋，搜尋速度提昇 5 倍且永不忙碌！
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 解析網址直接加入 -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-        <h2 class="text-base font-bold text-teal-400 flex items-center gap-2">
-          <i class="fa-solid fa-plus-circle"></i> 手動解析網址加入
-        </h2>
-        <div class="space-y-3">
-          <div>
-            <label class="block text-xs text-slate-400 mb-1 font-medium">YouTube 影片網址 或 11位元影片 ID</label>
-            <input type="text" id="youtube-url-input" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-100 placeholder-slate-700 text-sm" placeholder="請將 YouTube 伴奏影片網址貼於此處...">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1 font-medium">歌曲名稱 (未填時將以影片 ID 命名)</label>
-            <input type="text" id="youtube-title-input" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-100 placeholder-slate-700 text-sm" placeholder="例如：告白氣球 - 周杰倫">
-          </div>
-          <div class="flex gap-2">
-            <button id="btn-clipboard-add" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5">
-              <i class="fa-solid fa-clipboard text-teal-400"></i> 讀取剪貼簿點歌
-            </button>
-            <button id="btn-manual-add" class="flex-1 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5">
-              <i class="fa-solid fa-add"></i> 手動加入歌單
-            </button>
-          </div>
+          💡 **超流暢唱歌工作流**：點選 **「彈窗找歌」** 瀏覽，在影片中點選 **「分享 ➡️ 複製連結」**，回到這裡長按輸入框並「貼上」，接著點擊 **「自動抓取歌名並點歌」** 即可。系統會主動線上連線，解析出完整的中文歌名！
         </div>
       </div>
 
@@ -215,40 +154,13 @@
         </div>
         
         <div class="overflow-y-auto max-h-80 pr-1 space-y-2.5" id="controller-queue-list">
-          <div class="text-center py-10 text-slate-600 text-xs">歌單目前是空的，快去搜尋伴奏吧！</div>
+          <div class="text-center py-10 text-slate-600 text-xs">歌單目前是空的，快去貼上伴奏吧！</div>
         </div>
       </div>
 
     </section>
 
   </main>
-
-  <!-- 智慧剪貼簿偵測彈窗 (Modal) -->
-  <div id="clipboard-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-    <div class="bg-slate-900 border border-teal-500 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-[0_0_20px_rgba(20,184,166,0.3)]">
-      <div class="flex items-center gap-3 text-teal-400">
-        <i class="fa-solid fa-wand-magic-sparkles text-2xl animate-pulse"></i>
-        <h3 class="text-base font-bold">智慧點歌傳送門</h3>
-      </div>
-      <p class="text-xs text-slate-300 leading-relaxed">
-        系統偵測到您剛剛複製了 YouTube 伴奏網址！是否直接送上大螢幕？
-      </p>
-      <div class="p-3 bg-slate-950 rounded-lg text-[10px] text-slate-400 truncate" id="clip-video-url">
-        網址載入中...
-      </div>
-      <div class="grid grid-cols-3 gap-2 pt-2">
-        <button id="btn-clip-cancel" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
-          取消
-        </button>
-        <button id="btn-clip-add" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold">
-          點歌
-        </button>
-        <button id="btn-clip-add-next" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold">
-          插播
-        </button>
-      </div>
-    </div>
-  </div>
 
   <script src="app.js"></script>
 </body>
