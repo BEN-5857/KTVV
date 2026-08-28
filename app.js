@@ -1,16 +1,27 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v2.7 Debug除錯與強力打洞版)
+ * Web-KTV-Cast 核心邏輯 (v2.8 時序安全啟動與狀態同步版)
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+// ==========================================
+// 網頁載入時序安全啟動器 (解決 PWA 快取導致 DOMContentLoaded 錯過的問題)
+// ==========================================
+function startApp() {
   const isTVMode = document.getElementById('tv-player') !== null;
+  console.log(`[系統通知] 點歌系統安全啟動！運行角色: ${isTVMode ? '電視播放端' : '手機遙控端'}`);
   
   if (isTVMode) {
     initTV();
   } else {
     initController();
   }
-});
+}
+
+// 偵測瀏覽器當前狀態，若已載入完成則直接啟動，不傻等事件
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
 
 // ==========================================
 // 統一的 PeerJS 全球打洞伺服器設定 (含 Google 官方 STUN 伺服器群)
@@ -143,7 +154,6 @@ function setupTVPeer() {
   if (codeDisplay) codeDisplay.textContent = tvRoomCode;
   if (hudRoom) hudRoom.textContent = tvRoomCode;
   
-  // 注入打洞設定
   const peer = new Peer('web-ktv-' + tvRoomCode, PEER_CONFIG);
   
   peer.on('open', () => {
@@ -588,7 +598,7 @@ async function addSongFromUrl(url, isNext = false) {
     syncStateWithTV("PLAY");
     
     if (ctrlActiveConn) {
-      showToast("🎵 正在電視端為您播放...");
+      showToast("🎵 正在電視端播放...");
     } else {
       showToast("📝 電視未連線，已暫存為正在播放");
     }
