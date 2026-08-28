@@ -1,5 +1,5 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v2.6 狀態同步與自動下一首穩定版)
+ * Web-KTV-Cast 核心邏輯 (v2.7 Debug除錯與強力打洞版)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,6 +11,22 @@ document.addEventListener('DOMContentLoaded', () => {
     initController();
   }
 });
+
+// ==========================================
+// 統一的 PeerJS 全球打洞伺服器設定 (含 Google 官方 STUN 伺服器群)
+// ==========================================
+const PEER_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' }
+    ]
+  },
+  debug: 3 // 開啟最高級別除錯日誌，會在 F12 控制台印出所有通訊細節
+};
 
 // ==========================================
 // 電視端 (TV) 邏輯變數
@@ -98,7 +114,6 @@ function onPlayerReady() {
 }
 
 function onPlayerStateChange(event) {
-  // event.data === 0 代表播放結束 (ENDED)
   if (event.data === 0) {
     console.log('影片播放結束，通知手機端自動切歌...');
     if (tvActiveConn) {
@@ -109,7 +124,6 @@ function onPlayerStateChange(event) {
 
 function onPlayerError(event) {
   console.error('YouTube 播放異常:', event.data);
-  // 遇影片故障，3秒後同樣通知手機端跳往下一首，避免大螢幕卡死
   setTimeout(() => {
     if (tvActiveConn) {
       tvActiveConn.send({ type: 'ENDED' });
@@ -129,7 +143,8 @@ function setupTVPeer() {
   if (codeDisplay) codeDisplay.textContent = tvRoomCode;
   if (hudRoom) hudRoom.textContent = tvRoomCode;
   
-  const peer = new Peer('web-ktv-' + tvRoomCode);
+  // 注入打洞設定
+  const peer = new Peer('web-ktv-' + tvRoomCode, PEER_CONFIG);
   
   peer.on('open', () => {
     const status = document.getElementById('tv-status');
@@ -164,28 +179,19 @@ function setupTVPeer() {
   });
 
   peer.on('error', (err) => {
+    console.error('[電視端 Peer 錯誤日誌]:', err);
     if (err.type === 'unavailable-id') {
       tvRoomCode = Math.floor(100000 + Math.random() * 900000).toString();
       localStorage.setItem('ktv_room_code', tvRoomCode);
       location.reload();
-    } else {
-      const status = document.getElementById('tv-status');
-      if (status) {
-        status.innerHTML = `
-          <span class="w-2 h-2 rounded-full bg-rose-500"></span> 雲端大廳暫時重啟中...
-        `;
-      }
     }
   });
 }
 
-// 電視端接收並解析統合狀態封包 (State-Sync)
 function handleTVMessage(data) {
   if (data.type === 'SYNC_STATE') {
-    // 1. 同步即將播放歌單
     updateTVQueueUI(data.queue, data.currentPlaying);
     
-    // 2. 依動作指令控制播放器
     if (data.command === 'PLAY' && data.currentPlaying) {
       playVideo(data.currentPlaying.videoId, data.currentPlaying.title);
     } else if (data.command === 'PAUSE') {
@@ -267,21 +273,15 @@ function updateTVQueueUI(queue, currentPlaying) {
 
 
 // ==========================================
-// 控制器端 (Controller) 邏輯與狀態同步優化
+// 控制器端 (Controller) 邏輯
 // ==========================================
-let ctrlPeer = null;
-let ctrlActiveConn = null;
-let playlistQueue = [];
-let currentPlaying = null;
-let ctrlIsPlaying = true;
+let lastProcessedClipboardUrl = '';
 
 function initController() {
   const safeBindClick = (id, callback) => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('click', callback);
-    } else {
-      console.warn(`[安全容錯] 未能綁定 ID "${id}"，已安全略過。`);
     }
   };
 
@@ -303,7 +303,6 @@ function initController() {
     }, 500);
   }
   
-  // 連線電視
   safeBindClick('btn-connect', () => {
     if (!roomCodeInput) return;
     const room = roomCodeInput.value.trim();
@@ -314,7 +313,6 @@ function initController() {
     }
   });
   
-  // 自動擷取中文點歌
   safeBindClick('btn-manual-add', () => {
     if (!youtubeUrlInput) return;
     const urlVal = youtubeUrlInput.value.trim();
@@ -325,7 +323,6 @@ function initController() {
     addSongFromUrl(urlVal, false);
   });
 
-  // 自動擷取中文優先插播
   safeBindClick('btn-manual-add-next', () => {
     if (!youtubeUrlInput) return;
     const urlVal = youtubeUrlInput.value.trim();
@@ -340,7 +337,6 @@ function initController() {
     setupSpeechRecognition(btnSpeech, searchInput);
   }
   
-  // 快速搜尋按鈕：直接帶入關鍵字彈出 YouTube 頁面
   safeBindClick('btn-search-yt', () => {
     if (!searchInput) return;
     const query = searchInput.value.trim();
@@ -356,7 +352,6 @@ function initController() {
     }
   });
 
-  // 彈出式 YouTube 找歌小視窗
   safeBindClick('btn-popup-yt', () => {
     const searchUrl = `https://m.youtube.com`;
     const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
@@ -368,11 +363,10 @@ function initController() {
     }
   });
 
-  // 一鍵貼上並點播
   safeBindClick('btn-clipboard-quick', async () => {
     try {
       if (!navigator.clipboard || !navigator.clipboard.readText) {
-        alert('您的行動瀏覽器目前不支援自動讀取剪貼簿。\n\n💡 解決方式：請直接在上方輸入框中「長按」並點擊「貼上」，然後點按點歌即可！');
+        alert('您的行動瀏覽器目前不支援自動讀取剪貼簿。\n\n💡 解決方式：請直接在上方輸入框中「長按」並貼上，然後點按點歌即可！');
         return;
       }
       const text = await navigator.clipboard.readText();
@@ -388,12 +382,10 @@ function initController() {
     }
   });
 
-  // 重唱
   safeBindClick('btn-replay', () => {
     syncStateWithTV("REPLAY");
   });
   
-  // 暫停、播放切換
   const btnPlayPause = document.getElementById('btn-play-pause');
   safeBindClick('btn-play-pause', () => {
     ctrlIsPlaying = !ctrlIsPlaying;
@@ -410,13 +402,11 @@ function initController() {
     }
   });
   
-  // 切歌
   safeBindClick('btn-next', () => {
     playNextSong();
   });
 }
 
-// 萬能 YouTube 11位元 ID 提取器
 function extractYouTubeVideoId(url) {
   if (!url) return null;
   url = url.trim();
@@ -443,7 +433,6 @@ function extractYouTubeVideoId(url) {
   return null;
 }
 
-// 免費、無限制公用 JSON 歌名獲取器
 async function getYouTubeVideoTitle(videoId) {
   try {
     const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
@@ -472,7 +461,6 @@ async function getYouTubeVideoTitle(videoId) {
   return `KTV 伴唱影片 (${videoId})`;
 }
 
-// 連線重置機制：徹底清空舊有緩衝，確保 100% 握手重連成功
 function connectToTV(roomCodeVal) {
   const badge = document.getElementById('conn-status-badge');
   if (badge) {
@@ -482,12 +470,12 @@ function connectToTV(roomCodeVal) {
   
   if (ctrlPeer) {
     try {
-      ctrlPeer.destroy(); // 徹底釋放舊 Peer
+      ctrlPeer.destroy();
     } catch(e) {}
   }
   
-  // 建立全新通道實例
-  ctrlPeer = new Peer();
+  // 注入打洞設定與 DEBUG 層級
+  ctrlPeer = new Peer(PEER_CONFIG);
   
   ctrlPeer.on('open', () => {
     const conn = ctrlPeer.connect('web-ktv-' + roomCodeVal);
@@ -495,7 +483,7 @@ function connectToTV(roomCodeVal) {
   });
   
   ctrlPeer.on('error', (err) => {
-    console.error('PeerJS Controller Error:', err);
+    console.error('[手機端 Peer 錯誤日誌]:', err);
     if (badge) {
       badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
       badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線錯誤`;
@@ -515,12 +503,10 @@ function setupControllerEvents(conn, roomCodeVal) {
       badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已連線電視：${roomCodeVal}`;
     }
     
-    // 一併發送完整的狀態同步
     syncStateWithTV("NONE");
   });
   
   conn.on('data', (data) => {
-    // 監聽到電視端發送影片結束信號
     if (data.type === 'ENDED') {
       playNextSong();
     }
@@ -535,7 +521,7 @@ function setupControllerEvents(conn, roomCodeVal) {
   });
   
   conn.on('error', (err) => {
-    console.error(err);
+    console.error('[手機端連線通道錯誤日誌]:', err);
     if (badge) {
       badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
       badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線失敗`;
@@ -583,7 +569,6 @@ function setupSpeechRecognition(btn, input) {
   };
 }
 
-// 核心整合：網址解析、線上歌名提取與電視推送
 async function addSongFromUrl(url, isNext = false) {
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) {
@@ -600,37 +585,31 @@ async function addSongFromUrl(url, isNext = false) {
     currentPlaying = song;
     localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
     
-    // 一併發送完整的狀態同步 (告知電視開始播放)
     syncStateWithTV("PLAY");
     
     if (ctrlActiveConn) {
-      showToast(`🎵 正在電視端為您播放：\n${title}`);
+      showToast("🎵 正在電視端為您播放...");
     } else {
-      showToast(`📝 電視未連線，已暫存為正在播放：\n${title}`);
+      showToast("📝 電視未連線，已暫存為正在播放");
     }
   } else {
     if (isNext) {
       playlistQueue.unshift(song);
-      showToast(`⭐ 已成功「插播」下一首播放：\n${title}`);
+      showToast("⭐ 已成功「插播」下一首播放！");
     } else {
       playlistQueue.push(song);
-      showToast(`📝 已成功加入點歌佇列：\n${title}`);
+      showToast("📝 已成功加入點歌佇列！");
     }
     localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
-    
-    // 一併發送完整的狀態同步 (無額外播放指令，僅更新歌單)
     syncStateWithTV("NONE");
   }
   
   renderControllerQueue();
   
-  // 清空輸入框
   const urlInput = document.getElementById('youtube-url-input');
   if (urlInput) urlInput.value = '';
 }
 
-// 狀態機同步協定 (State-Sync Protocol)
-// 封裝所有數據，壓縮為單一 SCTP 數據封包發送，徹底杜絕多個快速指令產生的緩衝溢出斷線！
 function syncStateWithTV(command = "NONE") {
   if (ctrlActiveConn) {
     ctrlActiveConn.send({
@@ -648,21 +627,18 @@ function playNextSong() {
     localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
     localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
     
-    // 發送下一首播放 State 同步
     syncStateWithTV("PLAY");
     showToast(`⏭ 已切換播放：${currentPlaying.title}`);
   } else {
     currentPlaying = null;
     localStorage.setItem('ktv_current', 'null');
     
-    // 發送停止 State 同步
     syncStateWithTV("STOP");
     showToast(`⏹ 已無排隊歌曲，停止播放`);
   }
   renderControllerQueue();
 }
 
-// KTV 霓虹狀態提示框 (Toast)
 function showToast(message, type = 'success') {
   const existingToasts = document.querySelectorAll('.ktv-toast');
   existingToasts.forEach(t => t.remove());
@@ -691,8 +667,6 @@ function showToast(message, type = 'success') {
 function saveAndReloadQueue() {
   localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
   renderControllerQueue();
-  
-  // 更新歌單順序
   syncStateWithTV("NONE");
 }
 
@@ -708,16 +682,16 @@ window.addSongNext = function(videoId, title) {
     syncStateWithTV("PLAY");
     
     if (ctrlActiveConn) {
-      showToast(`🎵 正在電視端播放：${title}`);
+      showToast("🎵 正在電視端播放...");
     } else {
-      showToast(`📝 暫存為「正在播放」：${title}`);
+      showToast("📝 暫存為「正在播放」");
     }
   } else {
     playlistQueue.unshift(song);
     localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
     
     syncStateWithTV("NONE");
-    showToast(`⭐ 已成功「插播」至下一首播放！`);
+    showToast("⭐ 已成功「插播」至下一首播放！");
   }
   renderControllerQueue();
 };
@@ -744,7 +718,7 @@ window.insertSongNext = function(idx) {
   const song = playlistQueue.splice(idx, 1)[0];
   playlistQueue.unshift(song);
   saveAndReloadQueue();
-  showToast(`⭐ 已將排隊歌曲改為優先「插播」！`);
+  showToast("⭐ 已將排隊歌曲改為優先「插播」！");
 };
 
 window.deleteSong = function(idx) {
