@@ -1,18 +1,65 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v3.0 函數完全提升置頂 ＋ 防未定義報錯版)
+ * Web-KTV-Cast 核心邏輯 (v3.1 全域變數完全修復版)
  */
 
 // ==========================================
-// 1. 全域變數定義
+// 1. 全域變數定義 (Controller 遙控端狀態)
 // ==========================================
 let playlistQueue = [];
 let currentPlaying = null;
 let ctrlIsPlaying = true;
 let ctrlActiveConn = null;
 let ctrlPeer = null;
+let lastProcessedClipboardUrl = '';
 
 // ==========================================
-// 2. 核心輔助函數定義 (置於最頂部，確保完全提升，徹底防範「is not defined」錯誤)
+// 2. 全域變數定義 (TV 電視端狀態)
+// ==========================================
+let tvPlayer = null;
+let tvActiveConn = null;
+let tvRoomCode = '';
+let tvPlayerReady = false;
+let tvPendingPlay = null;
+
+// ==========================================
+// 3. 網頁載入時序安全啟動器
+// ==========================================
+function startApp() {
+  const isTVMode = document.getElementById('tv-player') !== null;
+  console.log(`[系統通知] 點歌系統安全啟動！運行角色: ${isTVMode ? '電視播放端' : '手機遙控端'}`);
+  
+  if (isTVMode) {
+    initTV();
+  } else {
+    initController();
+  }
+}
+
+// 偵測瀏覽器當前狀態，若已載入完成則直接啟動，不傻等事件
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startApp);
+} else {
+  startApp();
+}
+
+// ==========================================
+// 4. 統一的 PeerJS 全球打洞伺服器設定 (含 Google 官方 STUN 伺服器群)
+// ==========================================
+const PEER_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' }
+    ]
+  },
+  debug: 3 // 開啟最高級別除錯日誌
+};
+
+// ==========================================
+// 5. 核心輔助函數定義 (置置於最上層，防範 Hoisting 未定義錯誤)
 // ==========================================
 
 // KTV 霓虹狀態提示框 (Toast)
@@ -68,7 +115,7 @@ function extractYouTubeVideoId(url) {
   return null;
 }
 
-// 手機端點歌佇列渲染模組 (寫在此處確保 initController 執行時它已經 100% 存在！)
+// 手機端點歌佇列渲染模組
 function renderControllerQueue() {
   const queueCountEl = document.getElementById('queue-count');
   const curTitleEl = document.getElementById('ctrl-current-title');
@@ -134,7 +181,7 @@ async function getYouTubeVideoTitle(videoId) {
       }
     }
   } catch (err) {
-    console.warn('oEmbed 忙碌，切換備份解析...', err);
+    console.warn('YouTube 官方 oEmbed 忙碌，切換備份機制...', err);
   }
   
   try {
@@ -213,7 +260,7 @@ function playNextSong() {
   renderControllerQueue();
 }
 
-// 重建連線握手
+// 重建連線握手 (徹底重設 Peer 實例)
 function connectToTV(roomCodeVal) {
   const badge = document.getElementById('conn-status-badge');
   if (badge) {
@@ -227,6 +274,7 @@ function connectToTV(roomCodeVal) {
     } catch(e) {}
   }
   
+  // 注入打洞設定與 DEBUG 層級
   ctrlPeer = new Peer(PEER_CONFIG);
   
   ctrlPeer.on('open', () => {
@@ -328,7 +376,7 @@ function saveAndReloadQueue() {
 }
 
 // ==========================================
-// 3. 遙控端與電視端初始化主函數
+// 6. 遙控端與電視端初始化主函數
 // ==========================================
 function initController() {
   const safeBindClick = (id, callback) => {
@@ -341,7 +389,7 @@ function initController() {
   playlistQueue = JSON.parse(localStorage.getItem('ktv_queue') || '[]');
   currentPlaying = JSON.parse(localStorage.getItem('ktv_current') || 'null');
   
-  // 呼叫佇列渲染，此時由於函數宣告在最頂部，編譯時 100% 絕對存在！
+  // 呼叫佇列渲染
   renderControllerQueue();
   
   const searchInput = document.getElementById('search-input');
@@ -501,7 +549,7 @@ function initTV() {
 }
 
 // ==========================================
-// 4. 全域 window 作用域物件綁定 (動態 DOM onClick)
+// 7. 全域 window 作用域物件綁定 (動態 DOM onClick)
 // ==========================================
 window.moveSongUp = function(idx) {
   if (idx > 0) {
