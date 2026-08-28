@@ -1,9 +1,9 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v2.8 時序安全啟動與狀態同步版)
+ * Web-KTV-Cast 核心邏輯 (v2.9 函數補齊與時序啟動版)
  */
 
 // ==========================================
-// 網頁載入時序安全啟動器 (解決 PWA 快取導致 DOMContentLoaded 錯過的問題)
+// 網頁載入時序安全啟動器
 // ==========================================
 function startApp() {
   const isTVMode = document.getElementById('tv-player') !== null;
@@ -16,7 +16,6 @@ function startApp() {
   }
 }
 
-// 偵測瀏覽器當前狀態，若已載入完成則直接啟動，不傻等事件
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', startApp);
 } else {
@@ -36,7 +35,7 @@ const PEER_CONFIG = {
       { urls: 'stun:stun4.l.google.com:19302' }
     ]
   },
-  debug: 3 // 開啟最高級別除錯日誌，會在 F12 控制台印出所有通訊細節
+  debug: 3 // 開啟最高級別除錯日誌
 };
 
 // ==========================================
@@ -285,8 +284,6 @@ function updateTVQueueUI(queue, currentPlaying) {
 // ==========================================
 // 控制器端 (Controller) 邏輯
 // ==========================================
-let lastProcessedClipboardUrl = '';
-
 function initController() {
   const safeBindClick = (id, callback) => {
     const el = document.getElementById(id);
@@ -298,6 +295,7 @@ function initController() {
   playlistQueue = JSON.parse(localStorage.getItem('ktv_queue') || '[]');
   currentPlaying = JSON.parse(localStorage.getItem('ktv_current') || 'null');
   
+  // 呼叫歌單渲染 (此時函數已被完全補回，保證不崩潰)
   renderControllerQueue();
   
   const searchInput = document.getElementById('search-input');
@@ -417,6 +415,7 @@ function initController() {
   });
 }
 
+// 萬能 YouTube 11位元 ID 提取器
 function extractYouTubeVideoId(url) {
   if (!url) return null;
   url = url.trim();
@@ -443,6 +442,7 @@ function extractYouTubeVideoId(url) {
   return null;
 }
 
+// 免費、無限制公用 JSON 歌名獲取器
 async function getYouTubeVideoTitle(videoId) {
   try {
     const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
@@ -471,6 +471,7 @@ async function getYouTubeVideoTitle(videoId) {
   return `KTV 伴唱影片 (${videoId})`;
 }
 
+// 手機端連接電視函數
 function connectToTV(roomCodeVal) {
   const badge = document.getElementById('conn-status-badge');
   if (badge) {
@@ -484,7 +485,6 @@ function connectToTV(roomCodeVal) {
     } catch(e) {}
   }
   
-  // 注入打洞設定與 DEBUG 層級
   ctrlPeer = new Peer(PEER_CONFIG);
   
   ctrlPeer.on('open', () => {
@@ -647,6 +647,49 @@ function playNextSong() {
     showToast(`⏹ 已無排隊歌曲，停止播放`);
   }
   renderControllerQueue();
+}
+
+// 【補齊核心函數】手機端點歌佇列渲染模組 (徹底解決亂碼與未定義崩潰問題)
+function renderControllerQueue() {
+  const queueCountEl = document.getElementById('queue-count');
+  const curTitleEl = document.getElementById('ctrl-current-title');
+  const queueContainer = document.getElementById('controller-queue-list');
+  
+  if (queueCountEl) queueCountEl.textContent = `${playlistQueue.length} 首`;
+  if (curTitleEl) curTitleEl.textContent = currentPlaying ? currentPlaying.title : '目前無歌曲播放中';
+  if (!queueContainer) return;
+  
+  if (playlistQueue.length === 0) {
+    queueContainer.innerHTML = '<div class="text-center py-10 text-slate-600 text-xs">歌單目前是空的，快去貼上伴奏吧！</div>';
+    return;
+  }
+  
+  queueContainer.innerHTML = '';
+  playlistQueue.forEach((song, idx) => {
+    const div = document.createElement('div');
+    div.className = 'p-3 bg-slate-950 rounded-xl border border-slate-900/80 flex items-center justify-between text-sm';
+    div.innerHTML = `
+      <div class="truncate pr-2 flex-grow">
+        <span class="text-xs text-slate-500 font-bold mr-1">${idx + 1}</span>
+        <span class="font-medium text-slate-300">${song.title}</span>
+      </div>
+      <div class="flex items-center gap-2.5 shrink-0">
+        <button onclick="moveSongUp(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="上移">
+          <i class="fa-solid fa-arrow-up"></i>
+        </button>
+        <button onclick="moveSongDown(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="下移">
+          <i class="fa-solid fa-arrow-down"></i>
+        </button>
+        <button onclick="insertSongNext(${idx})" class="p-1 hover:text-amber-400 text-slate-400 transition" title="插播">
+          <i class="fa-solid fa-star"></i>
+        </button>
+        <button onclick="deleteSong(${idx})" class="p-1 hover:text-rose-500 text-slate-400 transition" title="刪除">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    `;
+    queueContainer.appendChild(div);
+  });
 }
 
 function showToast(message, type = 'success') {
