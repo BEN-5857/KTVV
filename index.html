@@ -25,7 +25,6 @@
         </div>
         <h1 class="text-lg font-bold tracking-wide">Web-KTV-Cast</h1>
       </div>
-      <!-- 連線狀態徽章 -->
       <span id="conn-status-badge" class="px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5 transition-all">
         <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 未連線
       </span>
@@ -35,7 +34,7 @@
   <!-- 主版面 -->
   <main class="flex-grow max-w-7xl mx-auto w-full p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
     
-    <!-- 左側 / 主區域 (點歌區) -->
+    <!-- 左側 / 點歌區 -->
     <section class="lg:col-span-7 space-y-6">
       
       <!-- 台灣點歌王 -->
@@ -59,23 +58,20 @@
         </div>
       </div>
 
-      <!-- 貼歌點歌與語音輔助面板 -->
+      <!-- 快速貼歌面板 -->
       <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
         <h2 class="text-base font-bold text-teal-400 flex items-center gap-2">
           <i class="fa-solid fa-clipboard-list"></i> 快速貼歌 ＋ 語音輔助
         </h2>
         
         <div class="space-y-3">
-          <!-- 核心貼歌輸入框 -->
           <div class="relative">
-            <input type="text" id="youtube-url-input" class="w-full pl-4 pr-12 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-100 placeholder-slate-600 text-sm" placeholder="貼上 YouTube 影片網址、Shorts 或直播連結...">
-            <!-- 語音輔助輸入按鈕 -->
-            <button id="btn-speech" class="absolute right-3 top-3 text-slate-400 hover:text-pink-500 transition" title="用語音輸入歌名並帶入搜尋">
+            <input type="text" id="youtube-url-input" class="w-full pl-4 pr-12 py-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-100 placeholder-slate-600 text-sm" placeholder="在此貼上 YouTube 影片網址、Shorts 或直播連結...">
+            <button id="btn-speech" class="absolute right-3 top-3 text-slate-400 hover:text-pink-500 transition">
               <i class="fa-solid fa-microphone text-lg"></i>
             </button>
           </div>
 
-          <!-- 功能點歌控制按鈕 -->
           <div class="grid grid-cols-2 gap-2">
             <button id="btn-manual-add" class="py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold transition text-xs flex items-center justify-center gap-1.5 shadow">
               <i class="fa-solid fa-plus"></i> 自動抓取歌名並點歌
@@ -85,25 +81,24 @@
             </button>
           </div>
 
-          <!-- 一鍵便利工具 -->
           <div class="grid grid-cols-12 gap-2">
             <button id="btn-clipboard-quick" class="col-span-8 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded-xl transition text-xs font-semibold flex items-center justify-center gap-1.5">
               <i class="fa-solid fa-paste text-teal-400"></i> 一鍵貼上剪貼簿並點歌
             </button>
-            <button id="btn-popup-yt" class="col-span-4 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 font-semibold rounded-xl transition flex items-center justify-center gap-1.5 text-xs border border-slate-750" title="開啟 YouTube 找歌小視窗並複製網址">
+            <button id="btn-popup-yt" class="col-span-4 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 font-semibold rounded-xl transition flex items-center justify-center gap-1.5 text-xs border border-slate-750">
               <i class="fa-brands fa-youtube text-base text-rose-500"></i> 彈窗找歌
             </button>
           </div>
         </div>
 
-        <div class="text-[11px] text-slate-400 bg-slate-950/80 p-3.5 rounded-xl border border-slate-850/60 leading-relaxed" id="search-tip-box">
-          💡 **超流暢唱歌工作流**：點選 **「彈窗找歌」** 瀏覽，在影片中點選 **「分享 ➡️ 複製連結」**，回到這裡長按輸入框並「貼上」，接著點擊 **「自動抓取歌名並點歌」** 即可。系統會主動線上連線，解析出完整的中文歌名！
+        <div class="text-[11px] text-slate-400 bg-slate-950/80 p-3.5 rounded-xl border border-slate-850/60 leading-relaxed">
+          💡 **點歌說明**：點選 **「彈窗找歌」** 瀏覽，複製網址回來此處貼上，接著點選 **「自動抓取歌名並點歌」** 即可。系統會主動解析出完整的中文歌名，不再是亂碼！
         </div>
       </div>
 
     </section>
 
-    <!-- 右側 / 浮動面板 (已點歌單與控制台) -->
+    <!-- 右側 / 控制台與佇列 -->
     <section class="lg:col-span-5 space-y-6">
 
       <!-- 電視連線控制 -->
@@ -117,7 +112,6 @@
             連線電視
           </button>
         </div>
-        <p class="text-[11px] text-slate-500">提示：請在電視上開啟播放網頁（tv.html）並輸入螢幕上顯示的 6 位數配對碼。</p>
       </div>
 
       <!-- KTV 遙控器 -->
