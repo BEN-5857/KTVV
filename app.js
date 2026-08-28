@@ -1,513 +1,25 @@
 /**
- * Web-KTV-Cast 核心邏輯 (v3.1 全域變數完全修復版)
+ * Web-KTV-Cast 核心邏輯 (v2.6 智慧直連與全格式兼容防崩潰版)
  */
 
-// ==========================================
-// 1. 全域變數定義 (Controller 遙控端狀態)
-// ==========================================
-let playlistQueue = [];
-let currentPlaying = null;
-let ctrlIsPlaying = true;
-let ctrlActiveConn = null;
-let ctrlPeer = null;
-let lastProcessedClipboardUrl = '';
-
-// ==========================================
-// 2. 全域變數定義 (TV 電視端狀態)
-// ==========================================
-let tvPlayer = null;
-let tvActiveConn = null;
-let tvRoomCode = '';
-let tvPlayerReady = false;
-let tvPendingPlay = null;
-
-// ==========================================
-// 3. 網頁載入時序安全啟動器
-// ==========================================
-function startApp() {
+document.addEventListener('DOMContentLoaded', () => {
   const isTVMode = document.getElementById('tv-player') !== null;
-  console.log(`[系統通知] 點歌系統安全啟動！運行角色: ${isTVMode ? '電視播放端' : '手機遙控端'}`);
   
   if (isTVMode) {
     initTV();
   } else {
     initController();
   }
-}
-
-// 偵測瀏覽器當前狀態，若已載入完成則直接啟動，不傻等事件
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startApp);
-} else {
-  startApp();
-}
+});
 
 // ==========================================
-// 4. 統一的 PeerJS 全球打洞伺服器設定 (含 Google 官方 STUN 伺服器群)
+// 電視端 (TV) 邏輯變數
 // ==========================================
-const PEER_CONFIG = {
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' }
-    ]
-  },
-  debug: 3 // 開啟最高級別除錯日誌
-};
-
-// ==========================================
-// 5. 核心輔助函數定義 (置置於最上層，防範 Hoisting 未定義錯誤)
-// ==========================================
-
-// KTV 霓虹狀態提示框 (Toast)
-function showToast(message, type = 'success') {
-  const existingToasts = document.querySelectorAll('.ktv-toast');
-  existingToasts.forEach(t => t.remove());
-
-  const toast = document.createElement('div');
-  const bgClass = type === 'success' ? 'bg-emerald-600 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-rose-950 border-rose-800 shadow-[0_0_15px_rgba(244,63,94,0.3)]';
-  toast.className = `ktv-toast fixed bottom-8 left-1/2 -translate-x-1/2 ${bgClass} border text-white px-5 py-3 rounded-2xl text-xs font-bold z-50 transition-all duration-300 transform translate-y-10 opacity-0 max-w-[85vw] text-center`;
-  
-  const icon = type === 'success' ? '<i class="fa-solid fa-circle-check text-emerald-200"></i>' : '<i class="fa-solid fa-triangle-exclamation text-rose-300"></i>';
-  toast.innerHTML = `<span class="flex items-center justify-center gap-1.5">${icon} ${message}</span>`;
-  
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.classList.remove('translate-y-10', 'opacity-0');
-  }, 50);
-  
-  setTimeout(() => {
-    toast.classList.add('translate-y-10', 'opacity-0');
-    setTimeout(() => {
-      toast.remove();
-    }, 300);
-  }, 2500);
-}
-
-// 萬能 YouTube 11位元 ID 提取器
-function extractYouTubeVideoId(url) {
-  if (!url) return null;
-  url = url.trim();
-  
-  if (/^[a-zA-Z0-9_-]{11}$/.test(url)) {
-    return url;
-  }
-  
-  const patterns = [
-    /[?&]v=([a-zA-Z0-9_-]{11})/,             // watch?v=ID or &v=ID
-    /youtu\.be\/([a-zA-Z0-9_-]{11})/,        // youtu.be/ID
-    /embed\/([a-zA-Z0-9_-]{11})/,          // embed/ID
-    /shorts\/([a-zA-Z0-9_-]{11})/,         // shorts/ID
-    /live\/([a-zA-Z0-9_-]{11})/            // live/ID
-  ];
-  
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match && match[1]) {
-      return match[1];
-    }
-  }
-  
-  return null;
-}
-
-// 手機端點歌佇列渲染模組
-function renderControllerQueue() {
-  const queueCountEl = document.getElementById('queue-count');
-  const curTitleEl = document.getElementById('ctrl-current-title');
-  const queueContainer = document.getElementById('controller-queue-list');
-  
-  if (queueCountEl) queueCountEl.textContent = `${playlistQueue.length} 首`;
-  if (curTitleEl) curTitleEl.textContent = currentPlaying ? currentPlaying.title : '目前無歌曲播放中';
-  if (!queueContainer) return;
-  
-  if (playlistQueue.length === 0) {
-    queueContainer.innerHTML = '<div class="text-center py-10 text-slate-600 text-xs">歌單目前是空的，快去貼上伴奏吧！</div>';
-    return;
-  }
-  
-  queueContainer.innerHTML = '';
-  playlistQueue.forEach((song, idx) => {
-    const div = document.createElement('div');
-    div.className = 'p-3 bg-slate-950 rounded-xl border border-slate-900/80 flex items-center justify-between text-sm';
-    div.innerHTML = `
-      <div class="truncate pr-2 flex-grow">
-        <span class="text-xs text-slate-500 font-bold mr-1">${idx + 1}</span>
-        <span class="font-medium text-slate-300">${song.title}</span>
-      </div>
-      <div class="flex items-center gap-2.5 shrink-0">
-        <button onclick="moveSongUp(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="上移">
-          <i class="fa-solid fa-arrow-up"></i>
-        </button>
-        <button onclick="moveSongDown(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="下移">
-          <i class="fa-solid fa-arrow-down"></i>
-        </button>
-        <button onclick="insertSongNext(${idx})" class="p-1 hover:text-amber-400 text-slate-400 transition" title="插播">
-          <i class="fa-solid fa-star"></i>
-        </button>
-        <button onclick="deleteSong(${idx})" class="p-1 hover:text-rose-500 text-slate-400 transition" title="刪除">
-          <i class="fa-solid fa-trash"></i>
-        </button>
-      </div>
-    `;
-    queueContainer.appendChild(div);
-  });
-}
-
-// 狀態機同步協定 (State-Sync)
-function syncStateWithTV(command = "NONE") {
-  if (ctrlActiveConn) {
-    ctrlActiveConn.send({
-      type: 'SYNC_STATE',
-      currentPlaying: currentPlaying,
-      queue: playlistQueue,
-      command: command
-    });
-  }
-}
-
-// 取得 YouTube 繁體中文影片標題 (oEmbed 免費無限制協定)
-async function getYouTubeVideoTitle(videoId) {
-  try {
-    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.title) {
-        return data.title;
-      }
-    }
-  } catch (err) {
-    console.warn('YouTube 官方 oEmbed 忙碌，切換備份機制...', err);
-  }
-  
-  try {
-    const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.title) {
-        return data.title;
-      }
-    }
-  } catch (err) {
-    console.warn('備份解析失敗，採用預設標籤', err);
-  }
-  
-  return `KTV 伴唱影片 (${videoId})`;
-}
-
-// 點歌、插播處理器
-async function addSongFromUrl(url, isNext = false) {
-  const videoId = extractYouTubeVideoId(url);
-  if (!videoId) {
-    alert('未能在輸入內容中識別出 YouTube 影片網址或 ID。\n請確認您貼上的是正確的伴奏影片網址。');
-    return;
-  }
-  
-  showToast("🔍 正在線上擷取 YouTube 伴奏歌名...", "success");
-  
-  const title = await getYouTubeVideoTitle(videoId);
-  const song = { id: Date.now().toString(), videoId, title };
-  
-  if (!currentPlaying) {
-    currentPlaying = song;
-    localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
-    
-    syncStateWithTV("PLAY");
-    
-    if (ctrlActiveConn) {
-      showToast(`🎵 正在電視端為您播放：\n${title}`);
-    } else {
-      showToast(`📝 電視未連線，已暫存為正在播放：\n${title}`);
-    }
-  } else {
-    if (isNext) {
-      playlistQueue.unshift(song);
-      showToast(`⭐ 已成功「插播」下一首播放：\n${title}`);
-    } else {
-      playlistQueue.push(song);
-      showToast(`📝 已成功加入點歌佇列：\n${title}`);
-    }
-    localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
-    syncStateWithTV("NONE");
-  }
-  
-  renderControllerQueue();
-  
-  const urlInput = document.getElementById('youtube-url-input');
-  if (urlInput) urlInput.value = '';
-}
-
-// 自動切歌下一首
-function playNextSong() {
-  if (playlistQueue.length > 0) {
-    currentPlaying = playlistQueue.shift();
-    localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
-    localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
-    
-    syncStateWithTV("PLAY");
-    showToast(`⏭ 已切換播放：${currentPlaying.title}`);
-  } else {
-    currentPlaying = null;
-    localStorage.setItem('ktv_current', 'null');
-    
-    syncStateWithTV("STOP");
-    showToast(`⏹ 已無排隊歌曲，停止播放`);
-  }
-  renderControllerQueue();
-}
-
-// 重建連線握手 (徹底重設 Peer 實例)
-function connectToTV(roomCodeVal) {
-  const badge = document.getElementById('conn-status-badge');
-  if (badge) {
-    badge.className = 'px-2.5 py-1 text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 rounded-full flex items-center gap-1.5';
-    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> 連線中...`;
-  }
-  
-  if (ctrlPeer) {
-    try {
-      ctrlPeer.destroy();
-    } catch(e) {}
-  }
-  
-  // 注入打洞設定與 DEBUG 層級
-  ctrlPeer = new Peer(PEER_CONFIG);
-  
-  ctrlPeer.on('open', () => {
-    const conn = ctrlPeer.connect('web-ktv-' + roomCodeVal);
-    setupControllerEvents(conn, roomCodeVal);
-  });
-  
-  ctrlPeer.on('error', (err) => {
-    console.error('[手機端 Peer 錯誤日誌]:', err);
-    if (badge) {
-      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線錯誤`;
-    }
-  });
-}
-
-function setupControllerEvents(conn, roomCodeVal) {
-  const badge = document.getElementById('conn-status-badge');
-
-  conn.on('open', () => {
-    ctrlActiveConn = conn;
-    localStorage.setItem('ktv_last_room', roomCodeVal);
-    
-    if (badge) {
-      badge.className = 'px-2.5 py-1 text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1.5';
-      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已連線電視：${roomCodeVal}`;
-    }
-    
-    syncStateWithTV("NONE");
-  });
-  
-  conn.on('data', (data) => {
-    if (data.type === 'ENDED') {
-      playNextSong();
-    }
-  });
-  
-  conn.on('close', () => {
-    ctrlActiveConn = null;
-    if (badge) {
-      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 未連線`;
-    }
-  });
-  
-  conn.on('error', (err) => {
-    console.error('[手機端連線通道錯誤日誌]:', err);
-    if (badge) {
-      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
-      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線失敗`;
-    }
-  });
-}
-
-function setupSpeechRecognition(btn, input) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    btn.style.display = 'none';
-    return;
-  }
-  
-  const recognition = new SpeechRecognition();
-  recognition.lang = 'zh-TW';
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  
-  let isListening = false;
-  
-  btn.addEventListener('click', () => {
-    if (isListening) {
-      recognition.stop();
-    } else {
-      recognition.start();
-    }
-  });
-  
-  recognition.onstart = () => {
-    isListening = true;
-    btn.innerHTML = '<i class="fa-solid fa-microphone text-lg text-pink-500 animate-ping"></i>';
-    input.placeholder = '語音辨識中，請開始說話...';
-  };
-  
-  recognition.onend = () => {
-    isListening = false;
-    btn.innerHTML = '<i class="fa-solid fa-microphone text-lg"></i>';
-    input.placeholder = '貼上 YouTube 影片網址、Shorts 或直播連結...';
-  };
-  
-  recognition.onresult = (event) => {
-    const resultText = event.results[0][0].transcript;
-    input.value = resultText;
-  };
-}
-
-function saveAndReloadQueue() {
-  localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
-  renderControllerQueue();
-  syncStateWithTV("NONE");
-}
-
-// ==========================================
-// 6. 遙控端與電視端初始化主函數
-// ==========================================
-function initController() {
-  const safeBindClick = (id, callback) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('click', callback);
-    }
-  };
-
-  playlistQueue = JSON.parse(localStorage.getItem('ktv_queue') || '[]');
-  currentPlaying = JSON.parse(localStorage.getItem('ktv_current') || 'null');
-  
-  // 呼叫佇列渲染
-  renderControllerQueue();
-  
-  const searchInput = document.getElementById('search-input');
-  const btnSpeech = document.getElementById('btn-speech');
-  const youtubeUrlInput = document.getElementById('youtube-url-input');
-  const roomCodeInput = document.getElementById('room-code-input');
-  
-  const lastRoom = localStorage.getItem('ktv_last_room');
-  if (lastRoom && roomCodeInput) {
-    roomCodeInput.value = lastRoom;
-    setTimeout(() => {
-      connectToTV(lastRoom);
-    }, 500);
-  }
-  
-  safeBindClick('btn-connect', () => {
-    if (!roomCodeInput) return;
-    const room = roomCodeInput.value.trim();
-    if (room.length === 6 && /^\d+$/.test(room)) {
-      connectToTV(room);
-    } else {
-      alert('請輸入正確的 6 位數房間配對碼！');
-    }
-  });
-  
-  safeBindClick('btn-manual-add', () => {
-    if (!youtubeUrlInput) return;
-    const urlVal = youtubeUrlInput.value.trim();
-    if (!urlVal) {
-      alert('請在框內貼入影片網址！');
-      return;
-    }
-    addSongFromUrl(urlVal, false);
-  });
-
-  safeBindClick('btn-manual-add-next', () => {
-    if (!youtubeUrlInput) return;
-    const urlVal = youtubeUrlInput.value.trim();
-    if (!urlVal) {
-      alert('請在框內貼入影片網址！');
-      return;
-    }
-    addSongFromUrl(urlVal, true);
-  });
-  
-  if (btnSpeech && searchInput) {
-    setupSpeechRecognition(btnSpeech, searchInput);
-  }
-  
-  safeBindClick('btn-search-yt', () => {
-    if (!searchInput) return;
-    const query = searchInput.value.trim();
-    const searchUrl = query 
-      ? `https://m.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`
-      : `https://m.youtube.com`;
-    
-    const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
-    if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
-      alert('⚠️ 彈出視窗已被手機瀏覽器阻擋！請允許瀏覽器彈出視窗功能。');
-    } else {
-      showToast("🔍 已開啟 YouTube，複製網址後回到這貼上點歌！");
-    }
-  });
-
-  safeBindClick('btn-popup-yt', () => {
-    const searchUrl = `https://m.youtube.com`;
-    const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
-    
-    if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
-      alert('⚠️ 彈出視窗已被手機瀏覽器阻擋！\n請前往瀏覽器設定中「允許彈出視窗」。');
-    } else {
-      showToast("💡 已開啟 YouTube 小視窗，請複製網址並回來貼上點歌！");
-    }
-  });
-
-  safeBindClick('btn-clipboard-quick', async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
-        alert('您的行動瀏覽器目前不支援自動讀取剪貼簿。\n\n💡 解決方式：請直接在上方輸入框中「長按」並貼上，然後點按點歌即可！');
-        return;
-      }
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        if (youtubeUrlInput) youtubeUrlInput.value = text;
-        addSongFromUrl(text, false);
-      } else {
-        alert('剪貼簿中目前無任何內容。');
-      }
-    } catch (err) {
-      console.warn(err);
-      alert('⚠️ 因瀏覽器安全限制，不允許網頁直接讀取剪貼簿。\n\n💡 解決方式：請直接在上方輸入框中「長按」並貼上，然後點按「自動抓取歌名並點歌」即可！');
-    }
-  });
-
-  safeBindClick('btn-replay', () => {
-    syncStateWithTV("REPLAY");
-  });
-  
-  const btnPlayPause = document.getElementById('btn-play-pause');
-  safeBindClick('btn-play-pause', () => {
-    ctrlIsPlaying = !ctrlIsPlaying;
-    const icon = document.getElementById('play-pause-icon');
-    const label = btnPlayPause ? (btnPlayPause.querySelector('span') || btnPlayPause) : null;
-    if (ctrlIsPlaying) {
-      if (icon) icon.className = 'fa-solid fa-pause text-lg text-pink-400';
-      if (label) label.textContent = '暫停';
-      syncStateWithTV("RESUME");
-    } else {
-      if (icon) icon.className = 'fa-solid fa-play text-lg text-emerald-400';
-      if (label) label.textContent = '播放';
-      syncStateWithTV("PAUSE");
-    }
-  });
-  
-  safeBindClick('btn-next', () => {
-    playNextSong();
-  });
-}
+let tvPlayer = null;
+let tvActiveConn = null;
+let tvRoomCode = '';
+let tvPlayerReady = false;
+let tvPendingPlay = null;
 
 function initTV() {
   const activateBtn = document.getElementById('btn-activate');
@@ -548,9 +60,947 @@ function initTV() {
   }
 }
 
+function setupYouTubePlayer() {
+  const tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  
+  window.onYouTubeIframeAPIReady = function() {
+    tvPlayer = new YT.Player('tv-player', {
+      height: '100%',
+      width: '100%',
+      videoId: '',
+      playerVars: {
+        'autoplay': 1,
+        'controls': 1,
+        'rel': 0,
+        'showinfo': 0,
+        'modestbranding': 1,
+        'iv_load_policy': 3
+      },
+      events: {
+        'onReady': onPlayerReady,
+        'onStateChange': onPlayerStateChange,
+        'onError': onPlayerError
+      }
+    });
+  };
+}
+
+function onPlayerReady() {
+  tvPlayerReady = true;
+  console.log('YouTube API 就緒。');
+  if (tvPendingPlay) {
+    playVideo(tvPendingPlay.videoId, tvPendingPlay.title);
+    tvPendingPlay = null;
+  }
+}
+
+function onPlayerStateChange(event) {
+  if (event.data === YT.PlayerState.ENDED) {
+    if (tvActiveConn) {
+      tvActiveConn.send({ type: 'ENDED' });
+    }
+  }
+}
+
+function onPlayerError(event) {
+  console.error('YouTube 播放異常:', event.data);
+  setTimeout(() => {
+    if (tvActiveConn) {
+      tvActiveConn.send({ type: 'ENDED' });
+    }
+  }, 3000);
+}
+
+function setupTVPeer() {
+  tvRoomCode = localStorage.getItem('ktv_room_code');
+  if (!tvRoomCode || tvRoomCode.length !== 6) {
+    tvRoomCode = Math.floor(100000 + Math.random() * 900000).toString();
+    localStorage.setItem('ktv_room_code', tvRoomCode);
+  }
+  
+  const codeDisplay = document.getElementById('room-code-display');
+  const hudRoom = document.getElementById('hud-room');
+  if (codeDisplay) codeDisplay.textContent = tvRoomCode;
+  if (hudRoom) hudRoom.textContent = tvRoomCode;
+  
+  const peer = new Peer('web-ktv-' + tvRoomCode);
+  
+  peer.on('open', () => {
+    const status = document.getElementById('tv-status');
+    if (status) {
+      status.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 雲端通訊就緒，等待遙控端連線...
+      `;
+    }
+  });
+  
+  peer.on('connection', (conn) => {
+    tvActiveConn = conn;
+    const status = document.getElementById('tv-status');
+    if (status) {
+      status.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span> 遙控端手機已連線 🟢
+      `;
+    }
+    
+    conn.on('data', (data) => {
+      handleTVMessage(data);
+    });
+    
+    conn.on('close', () => {
+      if (status) {
+        status.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 遙控端已斷開，等待重新連線...
+        `;
+      }
+      tvActiveConn = null;
+    });
+  });
+
+  peer.on('error', (err) => {
+    if (err.type === 'unavailable-id') {
+      tvRoomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      localStorage.setItem('ktv_room_code', tvRoomCode);
+      location.reload();
+    } else {
+      const status = document.getElementById('tv-status');
+      if (status) {
+        status.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線故障，請重新啟動頁面
+        `;
+      }
+    }
+  });
+}
+
+function handleTVMessage(data) {
+  switch (data.type) {
+    case 'PLAY':
+      playVideo(data.videoId, data.title);
+      break;
+    case 'PAUSE':
+      if (tvPlayer && tvPlayer.pauseVideo) tvPlayer.pauseVideo();
+      break;
+    case 'RESUME':
+      if (tvPlayer && tvPlayer.playVideo) tvPlayer.playVideo();
+      break;
+    case 'REPLAY':
+      if (tvPlayer && tvPlayer.seekTo) {
+        tvPlayer.seekTo(0);
+        tvPlayer.playVideo();
+      }
+      break;
+    case 'SYNC_QUEUE':
+      updateTVQueueUI(data.queue, data.currentPlaying);
+      break;
+    default:
+      break;
+  }
+}
+
+function playVideo(videoId, title) {
+  if (!tvPlayerReady) {
+    tvPendingPlay = { videoId, title };
+    return;
+  }
+  
+  const idle = document.getElementById('idle-overlay');
+  const hud = document.getElementById('hud-overlay');
+  const curTitle = document.getElementById('current-song-title');
+  const hudTitle = document.getElementById('hud-title');
+  
+  if (idle) idle.classList.add('hidden');
+  if (hud) hud.classList.add('opacity-100');
+  if (curTitle) curTitle.textContent = title;
+  if (hudTitle) hudTitle.textContent = title;
+  
+  if (tvPlayer && tvPlayer.loadVideoById) {
+    tvPlayer.loadVideoById({
+      videoId: videoId,
+      startSeconds: 0
+    });
+  }
+}
+
+function updateTVQueueUI(queue, currentPlaying) {
+  const tvQueueList = document.getElementById('tv-queue-list');
+  if (!tvQueueList) return;
+  tvQueueList.innerHTML = '';
+  
+  const idle = document.getElementById('idle-overlay');
+  const hud = document.getElementById('hud-overlay');
+  const curTitle = document.getElementById('current-song-title');
+  const hudTitle = document.getElementById('hud-title');
+  
+  if (currentPlaying) {
+    if (idle) idle.classList.add('hidden');
+    if (hud) hud.classList.add('opacity-100');
+    if (curTitle) curTitle.textContent = currentPlaying.title;
+    if (hudTitle) hudTitle.textContent = currentPlaying.title;
+  } else {
+    if (idle) idle.classList.remove('hidden');
+    if (hud) hud.classList.remove('opacity-100');
+    if (curTitle) curTitle.textContent = "目前無歌曲播放";
+    if (tvPlayer && tvPlayer.stopVideo) tvPlayer.stopVideo();
+  }
+  
+  if (queue.length === 0) {
+    tvQueueList.innerHTML = '<li class="text-slate-600 text-xs text-center py-12">佇列中目前無其他排隊歌曲</li>';
+    return;
+  }
+  
+  queue.forEach((song, idx) => {
+    const li = document.createElement('li');
+    li.className = 'py-2 px-3 bg-slate-900/40 rounded-xl border border-slate-850/60 text-slate-300 flex justify-between text-xs items-center';
+    li.innerHTML = `
+      <span class="truncate pr-2 font-medium">${idx + 1}. ${song.title}</span>
+      <span class="text-[9px] bg-indigo-950 text-indigo-400 font-bold px-1.5 py-0.5 rounded uppercase shrink-0 border border-indigo-900/30">NEXT</span>
+    `;
+    tvQueueList.appendChild(li);
+  });
+}
+
+
 // ==========================================
-// 7. 全域 window 作用域物件綁定 (動態 DOM onClick)
+// 控制器端 (Controller) 邏輯與相容性優化
 // ==========================================
+let ctrlPeer = null;
+let ctrlActiveConn = null;
+let playlistQueue = [];
+let currentPlaying = null;
+let ctrlIsPlaying = true;
+
+function initController() {
+  // 安全元素事件綁定輔助函數 (核心防崩潰防線)
+  const safeBindClick = (id, callback) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('click', callback);
+    } else {
+      console.warn(`[安全容錯] 未能在網頁中找到 ID 為 "${id}" 的按鈕，已自動忽略綁定，防止程式集體中斷。`);
+    }
+  };
+
+  playlistQueue = JSON.parse(localStorage.getItem('ktv_queue') || '[]');
+  currentPlaying = JSON.parse(localStorage.getItem('ktv_current') || 'null');
+  
+  renderControllerQueue();
+  
+  const searchInput = document.getElementById('search-input');
+  const btnSpeech = document.getElementById('btn-speech');
+  const youtubeUrlInput = document.getElementById('youtube-url-input');
+  const youtubeTitleInput = document.getElementById('youtube-title-input');
+  const roomCodeInput = document.getElementById('room-code-input');
+  
+  const lastRoom = localStorage.getItem('ktv_last_room');
+  if (lastRoom && roomCodeInput) {
+    roomCodeInput.value = lastRoom;
+    setTimeout(() => {
+      connectToTV(lastRoom);
+    }, 500);
+  }
+  
+  // 安全綁定：連線按鈕
+  safeBindClick('btn-connect', () => {
+    if (!roomCodeInput) return;
+    const room = roomCodeInput.value.trim();
+    if (room.length === 6 && /^\d+$/.test(room)) {
+      connectToTV(room);
+    } else {
+      alert('請輸入正確的 6 位數房間配對碼！');
+    }
+  });
+  
+  // 安全綁定：手動輸入點歌
+  safeBindClick('btn-manual-add', () => {
+    if (!youtubeUrlInput) return;
+    const urlVal = youtubeUrlInput.value.trim();
+    const titleVal = youtubeTitleInput ? youtubeTitleInput.value.trim() : '';
+    if (!urlVal) {
+      alert('請填入 YouTube 連結或影片 ID！');
+      return;
+    }
+    const videoId = extractYouTubeVideoId(urlVal);
+    if (!videoId) {
+      alert('未能在輸入內容中識別出 YouTube 影片。請確認網址是否正確（支援 Shorts、Live 與標準連結）。');
+      return;
+    }
+    const finalTitle = titleVal || `手動貼歌 - ${videoId}`;
+    addSong(videoId, finalTitle);
+    
+    youtubeUrlInput.value = '';
+    if (youtubeTitleInput) youtubeTitleInput.value = '';
+  });
+
+  // 安全綁定：手動輸入優先插播
+  safeBindClick('btn-manual-add-next', () => {
+    if (!youtubeUrlInput) return;
+    const urlVal = youtubeUrlInput.value.trim();
+    const titleVal = youtubeTitleInput ? youtubeTitleInput.value.trim() : '';
+    if (!urlVal) {
+      alert('請填入 YouTube 連結或影片 ID！');
+      return;
+    }
+    const videoId = extractYouTubeVideoId(urlVal);
+    if (!videoId) {
+      alert('未能在輸入內容中識別出 YouTube 影片。');
+      return;
+    }
+    const finalTitle = titleVal || `手動貼歌 - ${videoId}`;
+    addSongNext(videoId, finalTitle);
+    
+    youtubeUrlInput.value = '';
+    if (youtubeTitleInput) youtubeTitleInput.value = '';
+  });
+  
+  if (btnSpeech && searchInput) {
+    setupSpeechRecognition(btnSpeech, searchInput);
+  }
+  
+  // 安全綁定：開始搜尋
+  safeBindClick('btn-search-yt', () => {
+    if (!searchInput) return;
+    const query = searchInput.value.trim();
+    if (query) {
+      searchYouTubeKTV(query);
+    } else {
+      alert('請先輸入歌手或歌名關鍵字！');
+    }
+  });
+
+  // 智慧彈窗找歌
+  safeBindClick('btn-popup-yt', () => {
+    if (!searchInput) return;
+    const query = searchInput.value.trim();
+    const searchUrl = query 
+      ? `https://m.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`
+      : `https://m.youtube.com`;
+    
+    const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
+    
+    if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
+      alert('⚠️ 彈出視窗已被手機瀏覽器阻擋！\n請前往瀏覽器設定中「允許彈出視窗」，或直接開啟您的 YouTube App 搜尋，複製連結後返回此網頁，點擊下方「一鍵貼上並點歌」按鈕。');
+    } else {
+      showToast("💡 已彈出 YouTube，請在裡面點選複製網址，返回點歌 App 貼上即可點歌！");
+    }
+  });
+
+  // 安全綁定：一鍵貼上並點播 (100% 高相容、防崩潰版)
+  safeBindClick('btn-clipboard-quick', async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        // 退回到手動焦點貼上模式提示
+        alert('您的行動瀏覽器不支援自動讀取剪貼簿。\n\n💡 解決方法：請手動在「貼上網址」輸入框中按住並貼上，然後點選「點歌」！');
+        return;
+      }
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const videoId = extractYouTubeVideoId(text);
+        if (videoId) {
+          if (youtubeUrlInput) youtubeUrlInput.value = text;
+          addSong(videoId, `剪貼簿影片 - ${videoId}`);
+        } else {
+          // 如果剪貼簿不是 YouTube 連結，則將內容貼入輸入框中讓使用者確認
+          if (youtubeUrlInput) {
+            youtubeUrlInput.value = text;
+            showToast("📋 已將剪貼簿內容貼入輸入框，請確認網址格式。", "error");
+          } else {
+            alert('已讀取剪貼簿，但未偵測到 YouTube 影片格式。');
+          }
+        }
+      } else {
+        alert('剪貼簿中目前無任何內容。');
+      }
+    } catch (err) {
+      console.warn(err);
+      alert('⚠️ 因手機安全限制（無 HTTPS 或未授權），不允許直接自動讀取剪貼簿。\n\n💡 解決方式：請直接在輸入框中「長按」並點擊「貼上」，然後點按點歌即可！');
+    }
+  });
+
+  safeBindClick('btn-search-yt-fallback', () => {
+    if (!searchInput) return;
+    const query = searchInput.value.trim();
+    if (query) {
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`;
+      window.open(searchUrl, '_blank');
+    } else {
+      alert('請先輸入關鍵字！');
+    }
+  });
+
+  safeBindClick('btn-close-results', () => {
+    const box = document.getElementById('search-results-box');
+    const list = document.getElementById('search-results-list');
+    if (box) box.classList.add('hidden');
+    if (list) list.innerHTML = '';
+  });
+
+  safeBindClick('btn-replay', () => {
+    if (ctrlActiveConn) ctrlActiveConn.send({ type: 'REPLAY' });
+  });
+  
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  safeBindClick('btn-play-pause', () => {
+    ctrlIsPlaying = !ctrlIsPlaying;
+    const icon = document.getElementById('play-pause-icon');
+    const label = btnPlayPause ? (btnPlayPause.querySelector('span') || btnPlayPause) : null;
+    if (ctrlIsPlaying) {
+      if (icon) icon.className = 'fa-solid fa-pause text-lg text-pink-400';
+      if (label) label.textContent = '暫停';
+      if (ctrlActiveConn) ctrlActiveConn.send({ type: 'RESUME' });
+    } else {
+      if (icon) icon.className = 'fa-solid fa-play text-lg text-emerald-400';
+      if (label) label.textContent = '播放';
+      if (ctrlActiveConn) ctrlActiveConn.send({ type: 'PAUSE' });
+    }
+  });
+  
+  safeBindClick('btn-next', () => {
+    playNextSong();
+  });
+
+  // API 模式安全初始化
+  const apiKeyInput = document.getElementById('api-key-input');
+  const searchModeIndicator = document.getElementById('search-mode-indicator');
+  let userApiKey = localStorage.getItem('ktv_youtube_api_key') || '';
+  
+  if (userApiKey && apiKeyInput) {
+    apiKeyInput.value = userApiKey;
+  }
+  if (userApiKey && searchModeIndicator) {
+    searchModeIndicator.textContent = '官方直連模式 🟢';
+    searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
+  }
+
+  safeBindClick('btn-save-key', () => {
+    if (!apiKeyInput) return;
+    const key = apiKeyInput.value.trim();
+    localStorage.setItem('ktv_youtube_api_key', key);
+    if (key) {
+      alert('自訂 API 金鑰儲存成功！已解鎖極速直連模式。');
+      if (searchModeIndicator) {
+        searchModeIndicator.textContent = '官方直連模式 🟢';
+        searchModeIndicator.className = 'text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded font-normal';
+      }
+    } else {
+      alert('已清除 API 金鑰，切換回公用代理通道。');
+      if (searchModeIndicator) {
+        searchModeIndicator.textContent = '公用分流模式';
+        searchModeIndicator.className = 'text-[10px] bg-slate-950 text-slate-400 border border-slate-850 px-2 py-0.5 rounded font-normal';
+      }
+    }
+  });
+}
+
+// 萬能 YouTube 11位元 ID 提取器 (全面相容 Shorts, Live, 原始 ID, 分享短址)
+function extractYouTubeVideoId(url) {
+  if (!url) return null;
+  url = url.trim();
+  
+  // 如果已經是乾淨的 11 位元 ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url)) {
+    return url;
+  }
+  
+  const patterns = [
+    /[?&]v=([a-zA-Z0-9_-]{11})/,             // watch?v=ID or &v=ID
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,        // youtu.be/ID
+    /embed\/([a-zA-Z0-9_-]{11})/,          // embed/ID
+    /shorts\/([a-zA-Z0-9_-]{11})/,         // shorts/ID
+    /live\/([a-zA-Z0-9_-]{11})/            // live/ID
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  
+  return null;
+}
+
+// KTV 霓虹狀態提示框 (Toast)
+function showToast(message, type = 'success') {
+  // 清除舊的 toast
+  const existingToasts = document.querySelectorAll('.ktv-toast');
+  existingToasts.forEach(t => t.remove());
+
+  const toast = document.createElement('div');
+  const bgClass = type === 'success' ? 'bg-emerald-600 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-rose-950 border-rose-800 shadow-[0_0_15px_rgba(244,63,94,0.3)]';
+  toast.className = `ktv-toast fixed bottom-8 left-1/2 -translate-x-1/2 ${bgClass} border text-white px-5 py-3 rounded-2xl text-xs font-bold z-50 transition-all duration-300 transform translate-y-10 opacity-0 max-w-[85vw] text-center`;
+  
+  const icon = type === 'success' ? '<i class="fa-solid fa-circle-check text-emerald-200"></i>' : '<i class="fa-solid fa-triangle-exclamation text-rose-300"></i>';
+  toast.innerHTML = `<span class="flex items-center justify-center gap-1.5">${icon} ${message}</span>`;
+  
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.remove('translate-y-10', 'opacity-0');
+  }, 50);
+  
+  setTimeout(() => {
+    toast.classList.add('translate-y-10', 'opacity-0');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, 2500);
+}
+
+function connectToTV(roomCodeVal) {
+  const badge = document.getElementById('conn-status-badge');
+  if (badge) {
+    badge.className = 'px-2.5 py-1 text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 rounded-full flex items-center gap-1.5';
+    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> 連線中...`;
+  }
+  
+  const initiateConnect = () => {
+    if (ctrlActiveConn) {
+      ctrlActiveConn.close();
+    }
+    const conn = ctrlPeer.connect('web-ktv-' + roomCodeVal);
+    setupControllerEvents(conn, roomCodeVal);
+  };
+
+  if (ctrlPeer && !ctrlPeer.destroyed) {
+    initiateConnect();
+  } else {
+    if (typeof Peer === 'undefined') {
+      console.warn('PeerJS CDN 尚未載入完成，稍後重新嘗試連線。');
+      return;
+    }
+    ctrlPeer = new Peer();
+    ctrlPeer.on('open', () => {
+      initiateConnect();
+    });
+    ctrlPeer.on('error', (err) => {
+      console.error('PeerJS Controller Error:', err);
+      if (badge) {
+        badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線錯誤`;
+      }
+    });
+  }
+}
+
+function setupControllerEvents(conn, roomCodeVal) {
+  const badge = document.getElementById('conn-status-badge');
+
+  conn.on('open', () => {
+    ctrlActiveConn = conn;
+    localStorage.setItem('ktv_last_room', roomCodeVal);
+    
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已連線電視：${roomCodeVal}`;
+    }
+    
+    syncQueueWithTV();
+  });
+  
+  conn.on('data', (data) => {
+    if (data.type === 'ENDED') {
+      playNextSong();
+    }
+  });
+  
+  conn.on('close', () => {
+    ctrlActiveConn = null;
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> 未連線`;
+    }
+  });
+  
+  conn.on('error', (err) => {
+    console.error(err);
+    if (badge) {
+      badge.className = 'px-2.5 py-1 text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800 rounded-full flex items-center gap-1.5';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 連線失敗`;
+    }
+  });
+}
+
+function setupSpeechRecognition(btn, input) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    btn.style.display = 'none';
+    return;
+  }
+  
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'zh-TW';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  
+  let isListening = false;
+  
+  btn.addEventListener('click', () => {
+    if (isListening) {
+      recognition.stop();
+    } else {
+      recognition.start();
+    }
+  });
+  
+  recognition.onstart = () => {
+    isListening = true;
+    btn.innerHTML = '<i class="fa-solid fa-microphone text-lg text-pink-500 animate-ping"></i>';
+    input.placeholder = '語音辨識中，請開始說話...';
+  };
+  
+  recognition.onend = () => {
+    isListening = false;
+    btn.innerHTML = '<i class="fa-solid fa-microphone text-lg"></i>';
+    input.placeholder = '輸入歌名、歌手或關鍵字...';
+  };
+  
+  recognition.onresult = (event) => {
+    const resultText = event.results[0][0].transcript;
+    input.value = resultText;
+  };
+}
+
+// 核心搜尋演算法
+async function searchYouTubeKTV(query) {
+  const resultsBox = document.getElementById('search-results-box');
+  const resultsList = document.getElementById('search-results-list');
+  
+  if (!resultsBox || !resultsList) return;
+  
+  resultsBox.classList.remove('hidden');
+  resultsList.innerHTML = `
+    <div class="text-center py-8 text-slate-500 text-xs">
+      <i class="fa-solid fa-circle-notch animate-spin text-indigo-500 text-xl mb-2.5 block"></i>
+      正在極速檢索 YouTube 伴奏中...
+    </div>
+  `;
+  
+  const userApiKey = localStorage.getItem('ktv_youtube_api_key') || '';
+  
+  if (userApiKey) {
+    try {
+      const results = await searchWithOfficialAPI(query, userApiKey);
+      renderSearchResults(results);
+    } catch (err) {
+      console.error(err);
+      alert('自訂 API 金鑰連線失敗，可能為金鑰無效或超出配額。自動嘗試改為公用通道搜尋。');
+      await searchWithPublicAPIFallback(query);
+    }
+  } else {
+    await searchWithPublicAPIFallback(query);
+  }
+}
+
+// 官方直連搜尋演算法
+async function searchWithOfficialAPI(query, apiKey) {
+  const keyword = encodeURIComponent(query + ' KTV 伴奏');
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${keyword}&key=${apiKey}&type=video&maxResults=8`;
+  
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('API 異常');
+  const data = await response.json();
+  
+  return data.items.map(item => ({
+    videoId: item.id.videoId,
+    title: item.snippet.title,
+    author: item.snippet.channelTitle,
+    thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || `https://img.youtube.com/vi/${item.id.videoId}/hqdefault.jpg`,
+    duration: '官方 KTV 伴唱'
+  }));
+}
+
+// 開源 API 分流搜尋演算法
+async function searchWithPublicAPIFallback(query) {
+  const resultsList = document.getElementById('search-results-list');
+  const keyword = encodeURIComponent(query + ' KTV 伴奏');
+  
+  const pipedApis = [
+    'https://api.piped.yt',
+    'https://pipedapi.adminforge.de',
+    'https://pipedapi.syncpundit.io',
+    'https://pipedapi.kavin.rocks'
+  ];
+  
+  let data = null;
+  for (const api of pipedApis) {
+    try {
+      const searchUrl = `${api}/search?q=${keyword}&filter=videos`;
+      const response = await fetch(searchUrl);
+      if (response.ok) {
+        data = await response.json();
+        if (Array.isArray(data) || (data && Array.isArray(data.items))) {
+          break;
+        }
+      }
+    } catch (err) {
+      console.warn('API 通道連線異常，試圖切換...');
+    }
+  }
+  
+  if (!data) {
+    const invidiousApis = [
+      'https://invidious.projectsegfau.lt/api/v1/search',
+      'https://yewtu.be/api/v1/search'
+    ];
+    for (const api of invidiousApis) {
+      try {
+        const searchUrl = `${api}?q=${keyword}&type=video`;
+        const response = await fetch(searchUrl);
+        if (response.ok) {
+          data = await response.json();
+          break;
+        }
+      } catch (err) {
+        console.warn('Invidious API 忙碌...', err);
+      }
+    }
+  }
+  
+  if (!data) {
+    renderSearchError(resultsList, query);
+    return;
+  }
+  
+  try {
+    const items = Array.isArray(data) ? data : (data.items || []);
+    const results = items.map(item => {
+      let videoId = item.videoId;
+      if (!videoId && item.url) {
+        const parts = item.url.split('v=');
+        if (parts.length > 1) videoId = parts[1];
+      }
+      
+      let duration = '長度未知';
+      const secVal = item.duration || item.lengthSeconds;
+      if (secVal) {
+        if (typeof secVal === 'number') {
+          const mins = Math.floor(secVal / 60);
+          const secs = secVal % 60;
+          duration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        } else {
+          duration = secVal;
+        }
+      }
+      
+      return {
+        videoId: videoId,
+        title: item.title || '未知歌曲',
+        author: item.uploaderName || item.author || 'YouTube',
+        thumbnail: item.thumbnail || (item.videoThumbnails && item.videoThumbnails[0]?.url) || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        duration: duration
+      };
+    });
+    
+    renderSearchResults(results);
+  } catch (error) {
+    console.error('開源 API 解析錯誤:', error);
+    renderSearchError(resultsList, query);
+  }
+}
+
+// 渲染結果到手機端 UI
+function renderSearchResults(results) {
+  const resultsList = document.getElementById('search-results-list');
+  if (!resultsList) return;
+  resultsList.innerHTML = '';
+  
+  if (results.length === 0) {
+    resultsList.innerHTML = `<div class="text-center py-8 text-slate-500 text-xs">找不到對應的 KTV 影片，請換個關鍵字搜尋。</div>`;
+    return;
+  }
+  
+  results.forEach(song => {
+    if (!song.videoId) return;
+    const safeTitle = song.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    
+    const div = document.createElement('div');
+    div.className = 'flex gap-3.5 p-2 bg-slate-900/50 hover:bg-slate-900 rounded-xl transition items-center text-xs border border-slate-850';
+    div.innerHTML = `
+      <img src="${song.thumbnail}" class="w-20 h-12 object-cover rounded-lg shrink-0 border border-slate-800 shadow" onerror="this.src='https://img.youtube.com/vi/${song.videoId}/hqdefault.jpg'">
+      <div class="flex-grow min-w-0 pr-1">
+        <div class="font-semibold text-slate-200 line-clamp-2 leading-tight">${song.title}</div>
+        <div class="text-[10px] text-slate-500 mt-1 flex items-center gap-1.5">
+          <span class="truncate max-w-[90px]">${song.author}</span>
+          <span>•</span>
+          <span>${song.duration}</span>
+        </div>
+      </div>
+      <div class="flex shrink-0 gap-1">
+        <button onclick="addSong('${song.videoId}', '${safeTitle}')" class="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] transition">
+          點歌
+        </button>
+        <button onclick="addSongNext('${song.videoId}', '${safeTitle}')" class="px-2.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold text-[10px] transition">
+          插播
+        </button>
+      </div>
+    `;
+    resultsList.appendChild(div);
+  });
+}
+
+function renderSearchError(container, query) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="text-center py-8 text-slate-400 text-xs space-y-2">
+      <p>⚠️ 內建公用連線通道目前異常忙碌。</p>
+      <div class="flex flex-col gap-2 pt-2 px-6">
+        <button onclick="triggerPopupSearch()" class="py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-xs transition">
+          💡 使用極速「彈窗找歌」 <i class="fa-solid fa-wand-magic-sparkles ml-0.5"></i>
+        </button>
+        <button id="btn-search-yt-retry" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition">
+          另開視窗至 YouTube 搜尋
+        </button>
+      </div>
+    </div>
+  `;
+  
+  const retryBtn = document.getElementById('btn-search-yt-retry');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', () => {
+      window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`, '_blank');
+    });
+  }
+}
+
+// 全域彈出搜尋視窗，與 Modal 自動對接
+window.triggerPopupSearch = function() {
+  const queryInput = document.getElementById('search-input');
+  const query = queryInput ? queryInput.value.trim() : '';
+  const searchUrl = query 
+    ? `https://m.youtube.com/results?search_query=${encodeURIComponent(query + ' KTV 伴奏')}`
+    : `https://m.youtube.com`;
+  
+  const popupWin = window.open(searchUrl, 'ytSearchPopup', 'width=450,height=650,scrollbars=yes,status=yes');
+  if (!popupWin || popupWin.closed || typeof popupWin.closed === 'undefined') {
+    alert('⚠️ 彈出視窗已被阻擋！請允許瀏覽器彈出視窗功能。');
+  }
+};
+
+function addSong(videoId, title) {
+  const song = { id: Date.now().toString(), videoId, title };
+  if (!currentPlaying) {
+    currentPlaying = song;
+    localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
+    if (ctrlActiveConn) {
+      ctrlActiveConn.send({ type: 'PLAY', videoId: song.videoId, title: song.title });
+      showToast(`🎵 正在電視端播放：${title}`);
+    } else {
+      showToast(`📝 暫存為「正在播放」：${title}`);
+    }
+  } else {
+    playlistQueue.push(song);
+    localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
+    showToast(`📝 已成功加入排隊歌單！`);
+  }
+  renderControllerQueue();
+  syncQueueWithTV();
+}
+
+function playNextSong() {
+  if (playlistQueue.length > 0) {
+    currentPlaying = playlistQueue.shift();
+    localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
+    localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
+    if (ctrlActiveConn) {
+      ctrlActiveConn.send({ type: 'PLAY', videoId: currentPlaying.videoId, title: currentPlaying.title });
+      showToast(`⏭ 已切換播放：${currentPlaying.title}`);
+    }
+  } else {
+    currentPlaying = null;
+    localStorage.setItem('ktv_current', 'null');
+    showToast(`⏹ 已無排隊歌曲，停止播放`);
+  }
+  renderControllerQueue();
+  syncQueueWithTV();
+}
+
+function syncQueueWithTV() {
+  if (ctrlActiveConn) {
+    ctrlActiveConn.send({
+      type: 'SYNC_QUEUE',
+      queue: playlistQueue,
+      currentPlaying: currentPlaying
+    });
+  }
+}
+
+function renderControllerQueue() {
+  const queueCountEl = document.getElementById('queue-count');
+  const curTitleEl = document.getElementById('ctrl-current-title');
+  const queueContainer = document.getElementById('controller-queue-list');
+  
+  if (queueCountEl) queueCountEl.textContent = `${playlistQueue.length} 首`;
+  if (curTitleEl) curTitleEl.textContent = currentPlaying ? currentPlaying.title : '目前無歌曲播放中';
+  if (!queueContainer) return;
+  
+  if (playlistQueue.length === 0) {
+    queueContainer.innerHTML = '<div class="text-center py-10 text-slate-600 text-xs">歌單目前是空的，快去搜尋伴奏吧！</div>';
+    return;
+  }
+  
+  queueContainer.innerHTML = '';
+  playlistQueue.forEach((song, idx) => {
+    const div = document.createElement('div');
+    div.className = 'p-3 bg-slate-950 rounded-xl border border-slate-900/80 flex items-center justify-between text-sm';
+    div.innerHTML = `
+      <div class="truncate pr-2 flex-grow">
+        <span class="text-xs text-slate-500 font-bold mr-1">${idx + 1}</span>
+        <span class="font-medium text-slate-300">${song.title}</span>
+      </div>
+      <div class="flex items-center gap-2.5 shrink-0">
+        <button onclick="moveSongUp(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="上移">
+          <i class="fa-solid fa-arrow-up"></i>
+        </button>
+        <button onclick="moveSongDown(${idx})" class="p-1 hover:text-indigo-400 text-slate-400 transition" title="下移">
+          <i class="fa-solid fa-arrow-down"></i>
+        </button>
+        <button onclick="insertSongNext(${idx})" class="p-1 hover:text-amber-400 text-slate-400 transition" title="插播">
+          <i class="fa-solid fa-star"></i>
+        </button>
+        <button onclick="deleteSong(${idx})" class="p-1 hover:text-rose-500 text-slate-400 transition" title="刪除">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    `;
+    queueContainer.appendChild(div);
+  });
+}
+
+function saveAndReloadQueue() {
+  localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
+  renderControllerQueue();
+  syncQueueWithTV();
+}
+
+// ==========================================
+// 全域函式綁定
+// ==========================================
+window.addSong = addSong;
+
+window.addSongNext = function(videoId, title) {
+  const song = { id: Date.now().toString(), videoId, title };
+  if (!currentPlaying) {
+    currentPlaying = song;
+    localStorage.setItem('ktv_current', JSON.stringify(currentPlaying));
+    if (ctrlActiveConn) {
+      ctrlActiveConn.send({ type: 'PLAY', videoId: song.videoId, title: song.title });
+      showToast(`🎵 正在電視端播放：${title}`);
+    } else {
+      showToast(`📝 暫存為「正在播放」：${title}`);
+    }
+  } else {
+    playlistQueue.unshift(song); // 插播至排隊歌單首位
+    localStorage.setItem('ktv_queue', JSON.stringify(playlistQueue));
+    showToast(`⭐ 已成功「插播」至下一首播放！`);
+  }
+  renderControllerQueue();
+  syncQueueWithTV();
+};
+
 window.moveSongUp = function(idx) {
   if (idx > 0) {
     const temp = playlistQueue[idx];
@@ -573,7 +1023,7 @@ window.insertSongNext = function(idx) {
   const song = playlistQueue.splice(idx, 1)[0];
   playlistQueue.unshift(song);
   saveAndReloadQueue();
-  showToast("⭐ 已將排隊歌曲改為優先「插播」！");
+  showToast(`⭐ 已將排隊歌曲改為優先「插播」！`);
 };
 
 window.deleteSong = function(idx) {
@@ -591,12 +1041,23 @@ window.toggleIframeFallback = function() {
 window.toggleTheaterMode = function() {
   const wrapper = document.getElementById('iframe-wrapper');
   if (wrapper) {
-    if (wrapper.classList.contains('h-[450px]')) {
-      wrapper.classList.remove('h-[450px]');
-      wrapper.classList.add('h-[700px]');
+    if (wrapper.classList.contains('h-[500px]')) {
+      wrapper.classList.remove('h-[500px]');
+      wrapper.classList.add('h-[750px]');
     } else {
-      wrapper.classList.remove('h-[700px]');
-      wrapper.classList.add('h-[450px]');
+      wrapper.classList.remove('h-[750px]');
+      wrapper.classList.add('h-[500px]');
     }
+  }
+};
+
+window.toggleSettings = function() {
+  const panel = document.getElementById('settings-panel');
+  const chevron = document.getElementById('settings-chevron');
+  if (panel) {
+    panel.classList.toggle('hidden');
+  }
+  if (chevron) {
+    chevron.classList.toggle('rotate-180');
   }
 };
